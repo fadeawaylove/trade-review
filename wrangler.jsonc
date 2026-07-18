@@ -2,19 +2,19 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "trade-review-api",
   "main": "worker/src/index.js",
-  "compatibility_date": "2026-07-19",
+  "compatibility_date": "2026-07-18",
   "observability": { "enabled": true },
   "vars": {
     "ALLOWED_ORIGIN": "https://fadeawaylove.github.io",
     "PAGES_URL": "https://fadeawaylove.github.io/trade-review/",
-    "ALLOWED_GITHUB_LOGIN": "fadeawaylove"
+    "ALLOWED_GITHUB_LOGIN": "fadeawaylove",
+    "GITHUB_CLIENT_ID": "Ov23liJY733CdrLuZ5b4"
   },
   "d1_databases": [
     {
       "binding": "DB",
       "database_name": "trade-review",
-      "database_id": "REPLACE_AFTER_CREATE"
+      "database_id": "cefdfb3b-019a-448c-a75d-a35cf2425a77"
     }
   ]
 }
-

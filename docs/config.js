@@ -1,4 +1,3 @@
 window.TRADE_CONFIG = {
-  apiBase: "__API_BASE__"
+  apiBase: "https://trade-review-api.dengrunting.workers.dev"
 };
-
