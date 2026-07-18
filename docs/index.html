@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#f6f1e7">
+  <meta name="description" content="私人期货日内交易复盘台">
+  <title>日内交易复盘台</title>
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <div class="grain" aria-hidden="true"></div>
+
+  <section class="auth-screen" id="authScreen">
+    <div class="auth-card">
+      <div class="seal">TR</div>
+      <p class="eyebrow">Private trading ledger</p>
+      <h1>把每一次执行，<br>变成下一次优势。</h1>
+      <p class="auth-copy">交易数据存放于受保护的云端数据库。只有指定的 GitHub 账号可以查看和编辑。</p>
+      <button class="primary-button auth-button" id="loginButton">使用 GitHub 安全登录 <span>→</span></button>
+      <div class="auth-trust"><span></span>不请求仓库写入权限 · 不在公开网页中保存交易数据</div>
+      <p class="auth-error" id="authError" hidden></p>
+    </div>
+    <div class="auth-quote"><b>纪律不是限制，<br>是对随机性的防守。</b><small>EXECUTION / EVIDENCE / EDGE</small></div>
+  </section>
+
+  <div class="app" id="app" hidden>
+    <aside class="rail">
+      <div class="brand"><div class="seal small">TR</div><div><strong>交易复盘台</strong><small>CLOUD LEDGER</small></div></div>
+      <p class="rail-title">筛选维度</p>
+      <div class="filter-grid">
+        <label><span>品种</span><select id="instrumentFilter"><option value="">全部品种</option></select></label>
+        <label><span>方向</span><select id="directionFilter"><option value="">全部方向</option><option>多</option><option>空</option></select></label>
+        <label><span>时段</span><select id="sessionFilter"><option value="">全部时段</option><option>日盘</option><option>夜盘</option></select></label>
+        <label><span>结果</span><select id="resultFilter"><option value="">全部结果</option><option>盈利</option><option>亏损</option><option>持平</option></select></label>
+      </div>
+      <button class="ghost-button full" id="resetFilters">重置筛选</button>
+      <div class="rail-principle"><b>统计原则</b><p>从空仓开始、最终回到空仓记为一笔完整交易。分批开平仓不重复计算胜率。</p></div>
+    </aside>
+
+    <main>
+      <header class="masthead">
+        <div>
+          <p class="eyebrow">Execution · Evidence · Edge</p>
+          <h1>日内交易复盘台</h1>
+          <p class="subtitle">从成交证据中寻找可重复的优势。红色代表盈利，绿色代表亏损。</p>
+        </div>
+        <div class="user-tools">
+          <span class="cloud-state"><i></i>云端已同步</span>
+          <button class="ghost-button" id="exportButton">导出备份</button>
+          <div class="user-chip"><img id="userAvatar" alt=""><span id="userName"></span><button id="logoutButton" title="退出登录">退出</button></div>
+        </div>
+      </header>
+
+      <div class="notice" id="notice"><i></i><span id="noticeText">正在读取云端交易数据…</span></div>
+
+      <section class="kpi-grid">
+        <article><span>净盈亏</span><b id="kpiNet">—</b><small id="kpiGross"></small></article>
+        <article><span>胜率</span><b id="kpiWinRate">—</b><small id="kpiWins"></small></article>
+        <article><span>平均盈亏比</span><b id="kpiPayoff">—</b><small>平均盈利 ÷ 平均亏损</small></article>
+        <article><span>盈利因子</span><b id="kpiFactor">—</b><small>净盈利总额 ÷ 净亏损总额</small></article>
+        <article><span>完整交易</span><b id="kpiTrades">—</b><small id="kpiDirections"></small></article>
+        <article><span>手续费</span><b id="kpiFees">—</b><small id="kpiFeeShare"></small></article>
+        <article><span>单笔期望</span><b id="kpiExpectancy">—</b><small>筛选范围内平均值</small></article>
+        <article><span>最大回撤</span><b id="kpiDrawdown">—</b><small>按交易顺序计算</small></article>
+      </section>
+
+      <section class="hero-grid">
+        <article class="panel chart-panel">
+          <div class="panel-head"><div><small>EQUITY PATH</small><h2>累计净盈亏</h2></div><span id="chartCaption"></span></div>
+          <svg id="equityChart" viewBox="0 0 900 280" preserveAspectRatio="none"></svg>
+        </article>
+        <article class="panel brief-panel">
+          <div class="brief-index" id="briefIndex">00</div>
+          <h2 id="briefTitle">等待交易数据</h2>
+          <p id="briefText"></p>
+          <div class="rule"></div>
+          <dl><div><dt>最大单笔盈利</dt><dd id="bestTrade">—</dd></div><div><dt>最大单笔亏损</dt><dd id="worstTrade">—</dd></div><div><dt>平均持仓</dt><dd id="avgDuration">—</dd></div></dl>
+        </article>
+      </section>
+
+      <section class="split-grid">
+        <article class="panel"><div class="panel-head"><div><small>BY INSTRUMENT</small><h2>品种贡献</h2></div></div><div class="bars" id="instrumentBars"></div></article>
+        <article class="panel"><div class="panel-head"><div><small>BY SESSION</small><h2>时段表现</h2></div></div><div class="bars" id="sessionBars"></div></article>
+      </section>
+
+      <section class="panel ledger-panel">
+        <div class="panel-head"><div><small>TRADE LEDGER</small><h2>完整交易明细</h2></div><span>点击记录补充复盘</span></div>
+        <div class="table-wrap">
+          <table><thead><tr><th>编号</th><th>日期</th><th>品种 / 合约</th><th>方向</th><th>开仓 → 平仓</th><th>持仓</th><th>手数</th><th>毛盈亏</th><th>手续费</th><th>净盈亏</th><th>结果</th></tr></thead><tbody id="tradeRows"></tbody></table>
+          <div class="empty" id="emptyState" hidden>当前筛选条件下没有交易。</div>
+        </div>
+      </section>
+
+      <footer><span id="footerMeta"></span><span>交易数据受 GitHub 身份验证保护 · Cloudflare D1 持久化</span></footer>
+    </main>
+  </div>
+
+  <div class="drawer-mask" id="drawerMask"></div>
+  <aside class="drawer" id="drawer"><button class="drawer-close" id="drawerClose" aria-label="关闭">×</button><div id="drawerContent"></div></aside>
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <script src="./config.js"></script>
+  <script src="./app.js"></script>
+</body>
+</html>
+

@@ -1,0 +1,30 @@
+# Trade Review Cloud
+
+私人期货日内交易复盘台的公开程序仓库。
+
+## 隐私边界
+
+- `docs/` 只包含静态界面，不包含交易记录；
+- 交易数据存储在 Cloudflare D1；
+- Worker 使用 GitHub OAuth 验证身份，并只允许 `fadeawaylove`；
+- OAuth Client Secret 与 JWT Secret 仅存储为 Cloudflare Worker secrets；
+- 本仓库不得提交 seed SQL、截图、本地 JSON、Excel 或嵌入交易数据的 HTML。
+
+## 结构
+
+- `docs/`：GitHub Pages 前端；
+- `worker/src/index.js`：身份验证及交易 API；
+- `worker/schema.sql`：D1 数据库结构；
+- `wrangler.jsonc`：Cloudflare Worker 配置；
+- `.github/workflows/pages.yml`：GitHub Pages 自动部署。
+
+## 部署顺序
+
+1. 创建 D1 数据库并把数据库 ID 写入 `wrangler.jsonc`；
+2. 执行 `worker/schema.sql`；
+3. 配置 `GITHUB_CLIENT_ID`、`GITHUB_CLIENT_SECRET`、`JWT_SECRET`；
+4. 部署 Worker；
+5. 将 Worker URL 写入 `docs/config.js`；
+6. 推送到 GitHub，触发 Pages 部署；
+7. 使用本地生成的临时 seed SQL 初始化 D1。
+

@@ -1,0 +1,276 @@
+(() => {
+  const CONFIG = window.TRADE_CONFIG || {};
+  const API = String(CONFIG.apiBase || "").replace(/\/$/, "");
+  const $ = (id) => document.getElementById(id);
+  const filters = ["instrument", "direction", "session", "result"];
+  const selects = Object.fromEntries(filters.map((name) => [name, $(`${name}Filter`)]));
+  let dashboard = null;
+  let token = sessionStorage.getItem("tradeReviewToken") || "";
+  let toastTimer = null;
+
+  const money = (value) => new Intl.NumberFormat("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(value || 0));
+  const pct = (value) => `${(Number(value || 0) * 100).toFixed(1)}%`;
+  const num = (value, digits = 2) => Number.isFinite(Number(value)) ? Number(value).toFixed(digits) : "—";
+  const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[char]));
+  const signedClass = (value) => Number(value) > 0 ? "positive" : Number(value) < 0 ? "negative" : "";
+  const optionList = (values, current, empty = "待补充") => [`<option value="">${empty}</option>`, ...values.map((value) => `<option value="${esc(value)}" ${String(value) === String(current || "") ? "selected" : ""}>${esc(value)}</option>`)].join("");
+  const durationText = (seconds) => {
+    const h = Math.floor(seconds / 3600), m = Math.floor((seconds % 3600) / 60), s = Math.round(seconds % 60);
+    return h ? `${h}时${m}分` : m ? `${m}分${s}秒` : `${s}秒`;
+  };
+
+  function notify(message, error = false) {
+    const node = $("toast");
+    node.textContent = message;
+    node.classList.toggle("error", error);
+    node.classList.add("show");
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => node.classList.remove("show"), 2800);
+  }
+
+  function setAuthVisible(visible, message = "") {
+    $("authScreen").hidden = !visible;
+    $("app").hidden = visible;
+    $("authError").hidden = !message;
+    $("authError").textContent = message;
+  }
+
+  async function apiFetch(path, options = {}) {
+    const response = await fetch(`${API}${path}`, {
+      ...options,
+      headers: { Authorization: `Bearer ${token}`, ...(options.body ? { "Content-Type": "application/json" } : {}), ...(options.headers || {}) },
+    });
+    const contentType = response.headers.get("Content-Type") || "";
+    const payload = contentType.includes("application/json") ? await response.json() : await response.text();
+    if (response.status === 401) {
+      sessionStorage.removeItem("tradeReviewToken");
+      token = "";
+      setAuthVisible(true, "登录已过期，请重新使用 GitHub 登录。");
+      throw new Error("登录已过期");
+    }
+    if (!response.ok) throw new Error(payload.error || payload || "云端请求失败");
+    return payload;
+  }
+
+  function parseLoginToken() {
+    const match = location.hash.match(/(?:^#|&)token=([^&]+)/);
+    if (!match) return;
+    token = decodeURIComponent(match[1]);
+    sessionStorage.setItem("tradeReviewToken", token);
+    history.replaceState(null, "", `${location.pathname}${location.search}`);
+  }
+
+  function login() {
+    if (!API || API.includes("__API_BASE__")) {
+      setAuthVisible(true, "云端服务尚未完成配置。");
+      return;
+    }
+    const returnUrl = `${location.origin}${location.pathname}`;
+    location.href = `${API}/auth/login?return=${encodeURIComponent(returnUrl)}`;
+  }
+
+  function selectedTrades() {
+    return (dashboard?.trades || []).filter((trade) => filters.every((key) => !selects[key].value || trade[key] === selects[key].value));
+  }
+
+  function stats(trades) {
+    const wins = trades.filter((trade) => trade.netPnl > 0), losses = trades.filter((trade) => trade.netPnl < 0);
+    const sum = (rows, key) => rows.reduce((total, row) => total + Number(row[key] || 0), 0);
+    const grossWins = sum(wins, "netPnl"), grossLosses = Math.abs(sum(losses, "netPnl"));
+    let cumulative = 0, high = 0, maxDrawdown = 0;
+    trades.forEach((trade) => { cumulative += trade.netPnl; high = Math.max(high, cumulative, 0); maxDrawdown = Math.min(maxDrawdown, cumulative - high); });
+    const net = sum(trades, "netPnl"), gross = sum(trades, "grossPnl"), fees = sum(trades, "fees");
+    const avgWin = wins.length ? grossWins / wins.length : 0, avgLoss = losses.length ? grossLosses / losses.length : 0;
+    return {
+      count: trades.length, wins: wins.length, losses: losses.length, net, gross, fees,
+      winRate: trades.length ? wins.length / trades.length : 0,
+      payoff: avgLoss ? avgWin / avgLoss : null,
+      factor: grossLosses ? grossWins / grossLosses : null,
+      expectancy: trades.length ? net / trades.length : 0,
+      maxDrawdown,
+    };
+  }
+
+  function setMetric(id, value, sign = null) {
+    const node = $(id);
+    node.textContent = value;
+    node.classList.remove("positive", "negative");
+    if (sign !== null) node.classList.add(signedClass(sign));
+  }
+
+  function renderKpis(trades, summary) {
+    setMetric("kpiNet", `¥ ${money(summary.net)}`, summary.net);
+    $("kpiGross").textContent = `毛盈亏 ¥${money(summary.gross)}`;
+    setMetric("kpiWinRate", pct(summary.winRate), summary.winRate >= .5 ? 1 : -1);
+    $("kpiWins").textContent = `${summary.wins} 盈 / ${summary.losses} 亏`;
+    setMetric("kpiPayoff", summary.payoff === null ? "—" : num(summary.payoff), summary.payoff === null ? null : summary.payoff - 1);
+    setMetric("kpiFactor", summary.factor === null ? "—" : num(summary.factor), summary.factor === null ? null : summary.factor - 1);
+    setMetric("kpiTrades", String(summary.count));
+    const longs = trades.filter((trade) => trade.direction === "多").length;
+    $("kpiDirections").textContent = `${longs} 多 / ${summary.count - longs} 空`;
+    setMetric("kpiFees", `¥ ${money(summary.fees)}`, -summary.fees);
+    $("kpiFeeShare").textContent = summary.gross ? `占毛盈亏 ${pct(Math.abs(summary.fees / summary.gross))}` : "暂无毛盈亏";
+    setMetric("kpiExpectancy", `¥ ${money(summary.expectancy)}`, summary.expectancy);
+    setMetric("kpiDrawdown", `¥ ${money(summary.maxDrawdown)}`, summary.maxDrawdown);
+  }
+
+  function renderChart(trades) {
+    const svg = $("equityChart");
+    if (!trades.length) { svg.innerHTML = `<text x="450" y="140" text-anchor="middle" class="axis-label">暂无交易</text>`; return; }
+    const W = 900, H = 280, pad = { l: 55, r: 24, t: 24, b: 36 };
+    let cumulative = 0;
+    const values = trades.map((trade) => ({ id: trade.tradeId, value: (cumulative += trade.netPnl) }));
+    const min = Math.min(0, ...values.map((point) => point.value)), max = Math.max(0, ...values.map((point) => point.value));
+    const span = Math.max(1, max - min), xSpan = Math.max(1, values.length - 1);
+    const x = (index) => pad.l + index / xSpan * (W - pad.l - pad.r);
+    const y = (value) => pad.t + (max - value) / span * (H - pad.t - pad.b);
+    const points = values.map((point, index) => [x(index), y(point.value)]);
+    const line = points.map((point, index) => `${index ? "L" : "M"}${point[0].toFixed(1)},${point[1].toFixed(1)}`).join(" ");
+    const base = y(0);
+    const area = `${line} L${points.at(-1)[0]},${base} L${points[0][0]},${base} Z`;
+    const ticks = [0, .25, .5, .75, 1].map((ratio) => max - span * ratio);
+    svg.innerHTML = `<defs><linearGradient id="areaGradient" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#c94338" stop-opacity=".23"/><stop offset="1" stop-color="#c94338" stop-opacity="0"/></linearGradient></defs>
+      ${ticks.map((value) => `<line class="axis" x1="${pad.l}" y1="${y(value)}" x2="${W - pad.r}" y2="${y(value)}"/><text class="axis-label" x="${pad.l - 9}" y="${y(value) + 3}" text-anchor="end">${Math.round(value)}</text>`).join("")}
+      <path class="equity-area" d="${area}"/><path class="equity-line" d="${line}"/>
+      ${values.map((point, index) => `<circle class="point" cx="${points[index][0]}" cy="${points[index][1]}" r="3.3"><title>${esc(point.id)}｜累计 ¥${money(point.value)}</title></circle>`).join("")}
+      ${values.map((point, index) => values.length <= 12 ? `<text class="axis-label" x="${points[index][0]}" y="${H - 12}" text-anchor="middle">${esc(point.id.replace("TR-", "#"))}</text>` : "").join("")}`;
+    $("chartCaption").textContent = `${values.length} 笔完整交易`;
+  }
+
+  function aggregate(trades, key) {
+    const map = new Map();
+    trades.forEach((trade) => map.set(trade[key] || "待补充", (map.get(trade[key] || "待补充") || 0) + trade.netPnl));
+    return [...map.entries()].sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]));
+  }
+
+  function renderBars(id, rows) {
+    const host = $(id); host.innerHTML = "";
+    if (!rows.length) { host.innerHTML = `<div class="empty">暂无数据</div>`; return; }
+    const max = Math.max(1, ...rows.map(([, value]) => Math.abs(value)));
+    rows.forEach(([label, value]) => {
+      const row = document.createElement("div"); row.className = "bar-row";
+      row.innerHTML = `<div class="bar-label">${esc(label)}</div><div class="bar-track"><div class="bar-fill ${value < 0 ? "loss" : ""}" style="width:${Math.abs(value) / max * 100}%"></div></div><div class="bar-value ${signedClass(value)}">¥${money(value)}</div>`;
+      host.append(row);
+    });
+  }
+
+  function renderBrief(trades, summary) {
+    if (!trades.length) return;
+    const best = [...trades].sort((a, b) => b.netPnl - a.netPnl)[0];
+    const worst = [...trades].sort((a, b) => a.netPnl - b.netPnl)[0];
+    const averageDuration = trades.reduce((sum, trade) => sum + trade.holdingSeconds, 0) / trades.length;
+    $("briefIndex").textContent = String(Math.min(99, trades.length)).padStart(2, "0");
+    $("briefTitle").textContent = summary.losses === 0 ? "当前样本全部盈利，仍需等待亏损样本" : summary.winRate >= .6 ? "当前胜率较高，继续验证可重复性" : "优先检查亏损交易的共同结构";
+    $("briefText").textContent = `净盈亏 ${money(summary.net)} 元，手续费占毛盈亏约 ${pct(summary.gross ? Math.abs(summary.fees / summary.gross) : 0)}。${summary.payoff ? `平均盈利约为平均亏损的 ${num(summary.payoff)} 倍。` : "当前亏损样本不足，盈亏比暂不具备统计意义。"}`;
+    $("bestTrade").textContent = `${best.tradeId} · ¥${money(best.netPnl)}`;
+    $("worstTrade").textContent = `${worst.tradeId} · ¥${money(worst.netPnl)}`;
+    $("avgDuration").textContent = durationText(averageDuration);
+  }
+
+  function renderRows(trades) {
+    const body = $("tradeRows"); body.innerHTML = ""; $("emptyState").hidden = trades.length > 0;
+    [...trades].reverse().forEach((trade) => {
+      const row = document.createElement("tr"); row.tabIndex = 0;
+      row.innerHTML = `<td>${esc(trade.tradeId)}</td><td>${esc(trade.dateLabel)}</td><td>${esc(trade.instrument)} / ${esc(trade.contract)}</td><td><span class="direction-pill ${trade.direction === "多" ? "long" : "short"}">${esc(trade.direction)}</span></td><td>${esc(trade.entryTime)} → ${esc(trade.exitTime)}</td><td>${esc(trade.holdingLabel)}</td><td>${trade.entryQty}</td><td class="${signedClass(trade.grossPnl)}">${money(trade.grossPnl)}</td><td>${money(trade.fees)}</td><td class="${signedClass(trade.netPnl)}">${money(trade.netPnl)}</td><td>${esc(trade.result)}</td>`;
+      row.addEventListener("click", () => openDrawer(trade));
+      row.addEventListener("keydown", (event) => { if (event.key === "Enter") openDrawer(trade); });
+      body.append(row);
+    });
+  }
+
+  function render() {
+    const trades = selectedTrades(), summary = stats(trades);
+    renderKpis(trades, summary); renderChart(trades); renderBrief(trades, summary); renderBars("instrumentBars", aggregate(trades, "instrument")); renderBars("sessionBars", aggregate(trades, "session")); renderRows(trades);
+    const pending = (dashboard?.trades || []).filter((trade) => trade.dateStatus !== "已确认").length;
+    $("notice").classList.toggle("ok", pending === 0);
+    $("noticeText").textContent = pending ? `有 ${pending} 笔交易日期待确认；盈亏已计入总览，日期维度暂不作为结论。` : "所有交易日期已确认，日期维度统计可用。";
+    const updated = dashboard?.meta?.cloudUpdatedAt ? new Intl.DateTimeFormat("zh-CN", { timeZone: dashboard.meta.timezone || "Asia/Shanghai", dateStyle: "medium", timeStyle: "short" }).format(new Date(dashboard.meta.cloudUpdatedAt)) : dashboard?.meta?.lastUpdated || "—";
+    $("footerMeta").textContent = `云端更新：${updated} · ${dashboard?.meta?.fillCount || 0} 条成交 · ${dashboard?.trades?.length || 0} 笔完整交易`;
+  }
+
+  function openDrawer(trade) {
+    $("drawerContent").innerHTML = `<div class="drawer-sub">${esc(trade.tradeId)} · ${esc(trade.dateLabel)} · ${esc(trade.session)}</div>
+      <h2>${esc(trade.instrument)} ${esc(trade.contract)} · ${esc(trade.direction)}单</h2>
+      <div class="detail-hero"><div><span>净盈亏</span><b class="${signedClass(trade.netPnl)}">¥${money(trade.netPnl)}</b></div><div><span>盈亏点数</span><b>${num(trade.points)} 点</b></div></div>
+      <dl class="detail-list"><dt>开仓</dt><dd>${esc(trade.entryTime)} · ${trade.entryQty}手 · 加权价 ${num(trade.entryPrice)}</dd><dt>平仓</dt><dd>${esc(trade.exitTime)} · ${trade.exitQty}手 · 加权价 ${num(trade.exitPrice)}</dd><dt>持仓时长</dt><dd>${esc(trade.holdingLabel)}</dd><dt>毛盈亏</dt><dd>¥${money(trade.grossPnl)}</dd><dt>手续费</dt><dd>¥${money(trade.fees)}</dd></dl>
+      <section class="edit-section"><h3>补充复盘信息</h3><p class="edit-hint">保存后立即写入云端数据库，并同步到所有设备。</p>
+      <form id="annotationForm"><div class="edit-grid">
+        <label class="edit-field"><span>交易日期</span><input name="date" type="date" value="${esc(trade.date || "")}"></label>
+        <label class="edit-field"><span>执行评分（1–5）</span><select name="executionScore">${optionList(["1", "2", "3", "4", "5"], trade.executionScore)}</select></label>
+        <label class="edit-field"><span>计划风险（元）</span><input name="plannedRisk" type="number" min="0" step="0.01" value="${trade.plannedRisk ?? ""}"></label>
+        <label class="edit-field"><span>实际风险（元）</span><input name="actualRisk" type="number" min="0" step="0.01" value="${trade.actualRisk ?? ""}"></label>
+        <label class="edit-field"><span>策略 / 形态</span><select name="setup">${optionList(["突破", "回撤", "反转", "区间", "其他"], trade.setup)}</select></label>
+        <label class="edit-field"><span>市场环境</span><select name="marketEnvironment">${optionList(["趋势", "震荡", "突破", "回撤", "其他"], trade.marketEnvironment)}</select></label>
+        <label class="edit-field"><span>情绪</span><select name="emotion">${optionList(["平静", "犹豫", "恐惧", "贪婪", "急躁", "其他"], trade.emotion)}</select></label>
+        <label class="edit-field"><span>违规标签</span><input name="violationTag" value="${esc(trade.violationTag || "")}" placeholder="如：追单、扛单、无止损"></label>
+        <label class="edit-field full"><span>入场理由</span><textarea name="entryReason">${esc(trade.entryReason || "")}</textarea></label>
+        <label class="edit-field full"><span>出场理由</span><textarea name="exitReason">${esc(trade.exitReason || "")}</textarea></label>
+        <label class="edit-field full"><span>复盘备注</span><textarea name="reviewNotes">${esc(trade.reviewNotes || "")}</textarea></label>
+      </div><div class="edit-actions"><button class="primary-button" id="saveAnnotation" type="submit">保存到云端</button><button class="ghost-button clear-button" id="clearAnnotation" type="button">清除本笔补充</button><span class="save-state" id="saveState">云端持久化</span></div></form></section>`;
+    document.body.classList.add("drawer-open");
+    $("annotationForm").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const button = $("saveAnnotation"); button.disabled = true; $("saveState").textContent = "正在同步…";
+      try {
+        const payload = Object.fromEntries(new FormData(event.currentTarget).entries());
+        await apiFetch(`/api/trades/${encodeURIComponent(trade.tradeId)}`, { method: "PUT", body: JSON.stringify(payload) });
+        await refreshDashboard();
+        const next = dashboard.trades.find((row) => row.tradeId === trade.tradeId);
+        openDrawer(next); notify(`${trade.tradeId} 已保存到云端`);
+      } catch (error) { button.disabled = false; $("saveState").textContent = "同步失败"; notify(error.message, true); }
+    });
+    let clearArmed = false;
+    $("clearAnnotation").addEventListener("click", async (event) => {
+      if (!clearArmed) { clearArmed = true; event.currentTarget.textContent = "再次点击确认清除"; $("saveState").textContent = "此操作会清除全部手动补充"; return; }
+      try {
+        await apiFetch(`/api/trades/${encodeURIComponent(trade.tradeId)}`, { method: "DELETE" });
+        await refreshDashboard(); openDrawer(dashboard.trades.find((row) => row.tradeId === trade.tradeId)); notify(`${trade.tradeId} 的补充信息已清除`);
+      } catch (error) { notify(error.message, true); }
+    });
+  }
+
+  function closeDrawer() { document.body.classList.remove("drawer-open"); }
+
+  async function refreshDashboard() {
+    dashboard = await apiFetch("/api/dashboard");
+    render();
+  }
+
+  async function exportBackup() {
+    try {
+      const response = await fetch(`${API}/api/export`, { headers: { Authorization: `Bearer ${token}` } });
+      if (!response.ok) throw new Error("导出失败");
+      const blob = await response.blob();
+      const link = document.createElement("a"); link.href = URL.createObjectURL(blob); link.download = `trade-review-${new Date().toISOString().slice(0, 10)}.json`; link.click(); URL.revokeObjectURL(link.href);
+    } catch (error) { notify(error.message, true); }
+  }
+
+  async function start() {
+    parseLoginToken();
+    if (!token) { setAuthVisible(true); return; }
+    if (!API || API.includes("__API_BASE__")) { setAuthVisible(true, "云端服务尚未完成配置。"); return; }
+    setAuthVisible(false);
+    try {
+      const [session, data] = await Promise.all([apiFetch("/api/session"), apiFetch("/api/dashboard")]);
+      dashboard = data;
+      $("userAvatar").src = session.user.avatar || "";
+      $("userName").textContent = session.user.name || session.user.login;
+      [...new Set(dashboard.trades.map((trade) => trade.instrument))].sort().forEach((value) => {
+        const option = document.createElement("option"); option.value = option.textContent = value; selects.instrument.append(option);
+      });
+      render();
+    } catch (error) {
+      if (token) { setAuthVisible(true, error.message); }
+    }
+  }
+
+  $("loginButton").addEventListener("click", login);
+  $("logoutButton").addEventListener("click", () => { sessionStorage.removeItem("tradeReviewToken"); token = ""; setAuthVisible(true); });
+  $("exportButton").addEventListener("click", exportBackup);
+  Object.values(selects).forEach((select) => select.addEventListener("change", render));
+  $("resetFilters").addEventListener("click", () => { Object.values(selects).forEach((select) => { select.value = ""; }); render(); });
+  $("drawerClose").addEventListener("click", closeDrawer);
+  $("drawerMask").addEventListener("click", closeDrawer);
+  document.addEventListener("keydown", (event) => { if (event.key === "Escape") closeDrawer(); });
+  start();
+})();
