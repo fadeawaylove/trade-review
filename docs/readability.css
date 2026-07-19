@@ -1,0 +1,82 @@
+/* Comfortable-reading layer: preserve the editorial layout while making every
+   operational label readable on ordinary desktop and laptop displays. */
+body{font-size:16px;line-height:1.55}
+.app{grid-template-columns:286px minmax(0,1fr)}
+.rail{padding:30px 25px}
+.brand{gap:14px;margin-bottom:44px}
+.brand strong{font-size:16px}
+.brand small{margin-top:4px;font-size:12px}
+.rail-title{margin-bottom:16px;font-size:13px}
+.filter-grid label{gap:8px;margin-bottom:17px}
+.filter-grid span{font-size:13px}
+.filter-grid select{padding:12px 13px;font-size:15px}
+.ghost-button{padding:11px 15px;font-size:14px}
+.rail-principle{left:25px;right:25px;font-size:13px;line-height:1.8}
+
+main{padding-top:40px}
+.eyebrow{font-size:13px}
+.subtitle{font-size:15px;line-height:1.7}
+.cloud-state{padding:9px 12px;font-size:13px}
+.user-chip{font-size:13px}
+.user-chip button{font-size:12px}
+.notice{gap:11px;padding:13px 16px;font-size:14px;line-height:1.65}
+
+.kpi-grid{gap:15px}
+.kpi-grid article{min-height:145px;padding:22px 23px}
+.kpi-grid span{font-size:13px;letter-spacing:.08em}
+.kpi-grid b{margin-top:18px;font-size:clamp(30px,2.7vw,42px)}
+.kpi-grid small{margin-top:10px;font-size:13px;line-height:1.5}
+
+.panel-head{padding:24px 25px 0}
+.panel-head small,.panel-head>span{font-size:12px}
+.panel-head h2{font-size:23px}
+.chart-panel svg{height:330px;padding:12px 15px 18px}
+.axis-label{font-size:12px}
+.brief-panel{padding:24px 25px 28px}
+.brief-index{font-size:48px}
+.brief-panel h2{font-size:27px}
+.brief-panel>p{font-size:14px;line-height:1.9}
+.brief-panel dl div{padding:12px 0;font-size:13px}
+
+.bars{gap:18px;padding:22px 25px 27px}
+.bar-row{grid-template-columns:110px minmax(0,1fr) 112px;gap:13px;font-size:14px}
+.bar-track{height:9px}
+.table-wrap{max-height:600px}
+table{font-size:14px}
+th{padding:15px 16px;font-size:13px}
+td{padding:16px;border-top-color:rgba(33,49,68,.11)}
+.direction-pill{padding:4px 9px;font-size:12px}
+.empty{font-size:14px}
+footer{font-size:12px;line-height:1.7}
+
+.auth-copy{font-size:16px}
+.auth-button{font-size:15px}
+.auth-trust,.auth-error{font-size:13px;line-height:1.7}
+.drawer-sub{font-size:13px}
+.detail-hero span{font-size:12px}
+.detail-list{font-size:14px}
+.detail-list dt,.detail-list dd{padding:13px 0}
+.edit-section h3{font-size:21px}
+.edit-hint{font-size:13px}
+.edit-field{font-size:13px}
+.edit-field input,.edit-field select,.edit-field textarea{padding:12px 13px;font-size:15px}
+.save-state{font-size:12px}
+.toast{font-size:13px}
+
+@media(max-width:1060px){
+  .app{grid-template-columns:1fr}
+  .rail{padding:22px 25px}
+  .filter-grid span{font-size:12px}
+}
+
+@media(max-width:760px){
+  body{font-size:15px}
+  .auth-copy{font-size:15px}
+  .notice{font-size:13px}
+  .kpi-grid article{min-height:132px;padding:19px}
+  .kpi-grid span,.kpi-grid small{font-size:12px}
+  .chart-panel svg{height:290px}
+  .bar-row{grid-template-columns:88px minmax(0,1fr) 90px;font-size:13px}
+  table{font-size:13px}
+  th,td{padding:13px}
+}
