@@ -20,3 +20,14 @@ CREATE TABLE IF NOT EXISTS audit_log (
 
 CREATE INDEX IF NOT EXISTS idx_audit_created_at ON audit_log(created_at);
 
+-- GitHub OAuth authorization codes are single-use. Keep a short-lived receipt so
+-- a browser retry/reload of the callback can recover the already-issued session.
+CREATE TABLE IF NOT EXISTS oauth_receipts (
+  nonce TEXT PRIMARY KEY,
+  code_hash TEXT NOT NULL,
+  token TEXT NOT NULL,
+  return_url TEXT NOT NULL,
+  expires_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_oauth_receipts_expires_at ON oauth_receipts(expires_at);

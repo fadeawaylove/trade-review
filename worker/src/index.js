@@ -154,19 +154,42 @@ async function handleOAuthCallback(request, env) {
   const url = new URL(request.url);
   try {
     const state = await verifyState(url.searchParams.get("state"), env.JWT_SECRET);
+    const now = Math.floor(Date.now() / 1000);
+    const code = url.searchParams.get("code") || "";
+    const codeHash = await hmac(code, env.JWT_SECRET);
+    const receipt = await env.DB.prepare(
+      "SELECT token, return_url FROM oauth_receipts WHERE nonce = ? AND code_hash = ? AND expires_at >= ?"
+    ).bind(state.nonce, codeHash, now).first();
+    if (receipt?.token) {
+      return Response.redirect(`${receipt.return_url}#token=${encodeURIComponent(receipt.token)}`, 302);
+    }
+
     const tokenResponse = await fetch("https://github.com/login/oauth/access_token", {
       method: "POST",
       headers: { Accept: "application/json", "Content-Type": "application/json", "User-Agent": "trade-review-cloud" },
-      body: JSON.stringify({ client_id: env.GITHUB_CLIENT_ID, client_secret: env.GITHUB_CLIENT_SECRET, code: url.searchParams.get("code"), redirect_uri: `${url.origin}/auth/callback` }),
+      body: JSON.stringify({ client_id: env.GITHUB_CLIENT_ID, client_secret: env.GITHUB_CLIENT_SECRET, code, redirect_uri: `${url.origin}/auth/callback` }),
     });
     const tokenData = await tokenResponse.json();
-    if (!tokenData.access_token) throw new Error("GitHub 未返回访问令牌");
+    if (!tokenData.access_token) {
+      if (tokenData.error === "bad_verification_code") {
+        const retry = new URL("/auth/login", url.origin);
+        retry.searchParams.set("return", state.returnUrl);
+        return Response.redirect(retry.toString(), 302);
+      }
+      throw new Error(tokenData.error_description || "GitHub 授权失败，请重新登录");
+    }
     const userResponse = await fetch("https://api.github.com/user", {
       headers: { Authorization: `Bearer ${tokenData.access_token}`, Accept: "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28", "User-Agent": "trade-review-cloud" },
     });
     const user = await userResponse.json();
     if (!user.login || user.login.toLowerCase() !== env.ALLOWED_GITHUB_LOGIN.toLowerCase()) return new Response("此 GitHub 账号无权访问交易数据。", { status: 403 });
     const token = await issueToken(user, env.JWT_SECRET);
+    await env.DB.batch([
+      env.DB.prepare(
+        "INSERT OR REPLACE INTO oauth_receipts (nonce, code_hash, token, return_url, expires_at) VALUES (?, ?, ?, ?, ?)"
+      ).bind(state.nonce, codeHash, token, state.returnUrl, state.exp),
+      env.DB.prepare("DELETE FROM oauth_receipts WHERE expires_at < ?").bind(now),
+    ]);
     return Response.redirect(`${state.returnUrl}#token=${encodeURIComponent(token)}`, 302);
   } catch (error) {
     return new Response(`登录失败：${error.message}`, { status: 400, headers: { "Content-Type": "text/plain; charset=utf-8" } });
