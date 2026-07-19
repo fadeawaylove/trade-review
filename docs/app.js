@@ -2,11 +2,33 @@
   const CONFIG = window.TRADE_CONFIG || {};
   const API = String(CONFIG.apiBase || "").replace(/\/$/, "");
   const $ = (id) => document.getElementById(id);
+  const TOKEN_KEY = "tradeReviewToken";
+  const RENEW_INTERVAL_MS = 12 * 60 * 60 * 1000;
   const filters = ["instrument", "direction", "session", "result"];
   const selects = Object.fromEntries(filters.map((name) => [name, $(`${name}Filter`)]));
   let dashboard = null;
-  let token = sessionStorage.getItem("tradeReviewToken") || "";
+  let token = readToken();
   let toastTimer = null;
+
+  function readToken() {
+    try { return localStorage.getItem(TOKEN_KEY) || sessionStorage.getItem(TOKEN_KEY) || ""; }
+    catch { return sessionStorage.getItem(TOKEN_KEY) || ""; }
+  }
+
+  function saveToken(value) {
+    token = value || "";
+    try {
+      if (token) localStorage.setItem(TOKEN_KEY, token);
+      else localStorage.removeItem(TOKEN_KEY);
+      sessionStorage.removeItem(TOKEN_KEY);
+      return;
+    } catch {
+      if (token) sessionStorage.setItem(TOKEN_KEY, token);
+      else sessionStorage.removeItem(TOKEN_KEY);
+    }
+  }
+
+  function clearToken() { saveToken(""); }
 
   const money = (value) => new Intl.NumberFormat("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(value || 0));
   const pct = (value) => `${(Number(value || 0) * 100).toFixed(1)}%`;
@@ -43,8 +65,7 @@
     const contentType = response.headers.get("Content-Type") || "";
     const payload = contentType.includes("application/json") ? await response.json() : await response.text();
     if (response.status === 401) {
-      sessionStorage.removeItem("tradeReviewToken");
-      token = "";
+      clearToken();
       setAuthVisible(true, "登录已过期，请重新使用 GitHub 登录。");
       throw new Error("登录已过期");
     }
@@ -55,9 +76,14 @@
   function parseLoginToken() {
     const match = location.hash.match(/(?:^#|&)token=([^&]+)/);
     if (!match) return;
-    token = decodeURIComponent(match[1]);
-    sessionStorage.setItem("tradeReviewToken", token);
+    saveToken(decodeURIComponent(match[1]));
     history.replaceState(null, "", `${location.pathname}${location.search}`);
+  }
+
+  async function renewSession() {
+    if (!token) return;
+    const renewed = await apiFetch("/api/session/refresh", { method: "POST" });
+    if (renewed.token) saveToken(renewed.token);
   }
 
   function login() {
@@ -251,6 +277,7 @@
     if (!API || API.includes("__API_BASE__")) { setAuthVisible(true, "云端服务尚未完成配置。"); return; }
     setAuthVisible(false);
     try {
+      await renewSession();
       const [session, data] = await Promise.all([apiFetch("/api/session"), apiFetch("/api/dashboard")]);
       dashboard = data;
       $("userAvatar").src = session.user.avatar || "";
@@ -259,18 +286,24 @@
         const option = document.createElement("option"); option.value = option.textContent = value; selects.instrument.append(option);
       });
       render();
+      setInterval(() => { renewSession().catch(() => {}); }, RENEW_INTERVAL_MS);
     } catch (error) {
       if (token) { setAuthVisible(true, error.message); }
     }
   }
 
   $("loginButton").addEventListener("click", login);
-  $("logoutButton").addEventListener("click", () => { sessionStorage.removeItem("tradeReviewToken"); token = ""; setAuthVisible(true); });
+  $("logoutButton").addEventListener("click", () => { clearToken(); setAuthVisible(true); });
   $("exportButton").addEventListener("click", exportBackup);
   Object.values(selects).forEach((select) => select.addEventListener("change", render));
   $("resetFilters").addEventListener("click", () => { Object.values(selects).forEach((select) => { select.value = ""; }); render(); });
   $("drawerClose").addEventListener("click", closeDrawer);
   $("drawerMask").addEventListener("click", closeDrawer);
   document.addEventListener("keydown", (event) => { if (event.key === "Escape") closeDrawer(); });
+  window.addEventListener("storage", (event) => {
+    if (event.key !== TOKEN_KEY) return;
+    token = event.newValue || "";
+    if (!token) setAuthVisible(true);
+  });
   start();
 })();

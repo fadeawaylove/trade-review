@@ -1,4 +1,5 @@
 const encoder = new TextEncoder();
+const SESSION_TTL_SECONDS = 60 * 60 * 24 * 30;
 const allowedOverrideFields = new Set([
   "date", "plannedRisk", "actualRisk", "setup", "marketEnvironment", "executionScore",
   "violationTag", "entryReason", "exitReason", "emotion", "reviewNotes",
@@ -45,8 +46,8 @@ async function verifyState(state, secret) {
 async function issueToken(user, secret) {
   const header = base64url(JSON.stringify({ alg: "HS256", typ: "JWT" }));
   const payload = base64url(JSON.stringify({
-    sub: String(user.id), login: user.login, name: user.name || user.login, avatar: user.avatar_url || "",
-    iat: Math.floor(Date.now() / 1000), exp: Math.floor(Date.now() / 1000) + 60 * 60 * 12,
+    sub: String(user.id || user.sub), login: user.login, name: user.name || user.login, avatar: user.avatar_url || user.avatar || "",
+    iat: Math.floor(Date.now() / 1000), exp: Math.floor(Date.now() / 1000) + SESSION_TTL_SECONDS,
   }));
   const value = `${header}.${payload}`;
   return `${value}.${await hmac(value, secret)}`;
@@ -70,7 +71,7 @@ function corsHeaders(request, env) {
   return origin === env.ALLOWED_ORIGIN ? {
     "Access-Control-Allow-Origin": origin,
     "Access-Control-Allow-Headers": "Authorization, Content-Type",
-    "Access-Control-Allow-Methods": "GET, PUT, DELETE, OPTIONS",
+    "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
     "Access-Control-Max-Age": "86400",
     Vary: "Origin",
   } : {};
@@ -207,6 +208,10 @@ export default {
     const user = await verifyToken(request, env);
     if (!user) return json(request, env, { error: "请使用 GitHub 登录" }, 401);
     if (url.pathname === "/api/session" && request.method === "GET") return json(request, env, { user: { login: user.login, name: user.name, avatar: user.avatar } });
+    if (url.pathname === "/api/session/refresh" && request.method === "POST") {
+      const token = await issueToken(user, env.JWT_SECRET);
+      return json(request, env, { token, expiresAt: new Date((Math.floor(Date.now() / 1000) + SESSION_TTL_SECONDS) * 1000).toISOString() });
+    }
     if (url.pathname === "/api/dashboard" && request.method === "GET") {
       const dashboard = await loadDashboard(env);
       return dashboard ? json(request, env, dashboard) : json(request, env, { error: "云端底稿尚未初始化" }, 503);
