@@ -45,6 +45,7 @@
     return h ? `${h}时${m}分` : m ? `${m}分${s}秒` : `${s}秒`;
   };
   const formatBytes = (bytes) => Number(bytes || 0) >= 1024 * 1024 ? `${(Number(bytes) / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(Number(bytes || 0) / 1024))} KB`;
+  const formatCloudTime = (value) => value ? new Intl.DateTimeFormat("zh-CN", { timeZone: dashboard?.meta?.timezone || "Asia/Shanghai", dateStyle: "medium", timeStyle: "short" }).format(new Date(value)) : "—";
 
   function clearAttachmentUrls() {
     attachmentObjectUrls.forEach((url) => URL.revokeObjectURL(url));
@@ -352,6 +353,31 @@
     $("noticeText").textContent = pending ? `有 ${pending} 笔交易日期待确认；盈亏已计入总览，日期维度暂不作为结论。` : "所有交易日期已确认，日期维度统计可用。";
     const updated = dashboard?.meta?.cloudUpdatedAt ? new Intl.DateTimeFormat("zh-CN", { timeZone: dashboard.meta.timezone || "Asia/Shanghai", dateStyle: "medium", timeStyle: "short" }).format(new Date(dashboard.meta.cloudUpdatedAt)) : dashboard?.meta?.lastUpdated || "—";
     $("footerMeta").textContent = `云端更新：${updated} · ${dashboard?.meta?.fillCount || 0} 条成交 · ${dashboard?.trades?.length || 0} 笔完整交易`;
+    $("trashCount").textContent = String(dashboard?.deletedTrades?.length || 0);
+  }
+
+  function openTrashDrawer() {
+    clearAttachmentUrls();
+    activeTradeId = null;
+    const deletedTrades = dashboard?.deletedTrades || [];
+    const cards = deletedTrades.map((trade) => `<article class="trash-card">
+      <div class="trash-card-main"><span>${esc(trade.tradeId)} · ${esc(trade.dateLabel)}</span><h3>${esc(trade.instrument)} ${esc(trade.contract)} · ${esc(trade.direction)}单</h3><p>${esc(trade.entryTime)} → ${esc(trade.exitTime)} · ${esc(trade.result)} · 删除于 ${esc(formatCloudTime(trade.deletedAt))}</p></div>
+      <div class="trash-card-side"><b class="${signedClass(trade.netPnl)}">¥${money(trade.netPnl)}</b><button class="ghost-button restore-button" type="button" data-restore-trade="${esc(trade.tradeId)}">恢复交易</button></div>
+    </article>`).join("");
+    $("drawerContent").innerHTML = `<div class="drawer-sub">RECYCLE BIN · ${deletedTrades.length} 笔</div><h2>交易回收站</h2><p class="trash-intro">这里的交易不参与胜率、盈亏与图表统计。恢复后，原有复盘文字和截图会一起回来。</p><div class="trash-list">${cards || `<div class="trash-empty"><b>回收站是空的</b><span>从交易详情中移除的记录会出现在这里。</span></div>`}</div>`;
+    document.body.classList.add("drawer-open");
+    document.querySelectorAll("[data-restore-trade]").forEach((button) => {
+      button.addEventListener("click", async () => {
+        button.disabled = true;
+        button.textContent = "正在恢复…";
+        try {
+          await apiFetch(`/api/trades/${encodeURIComponent(button.dataset.restoreTrade)}/restore`, { method: "POST" });
+          await refreshDashboard();
+          openTrashDrawer();
+          notify(`${button.dataset.restoreTrade} 已恢复，统计已更新`);
+        } catch (error) { button.disabled = false; button.textContent = "恢复交易"; notify(error.message, true); }
+      });
+    });
   }
 
   function openDrawer(trade) {
@@ -388,7 +414,8 @@
         <label class="edit-field full"><span>入场理由</span><textarea name="entryReason">${esc(trade.entryReason || "")}</textarea></label>
         <label class="edit-field full"><span>出场理由</span><textarea name="exitReason">${esc(trade.exitReason || "")}</textarea></label>
         <label class="edit-field full"><span>复盘备注</span><textarea name="reviewNotes">${esc(trade.reviewNotes || "")}</textarea></label>
-      </div><div class="edit-actions"><button class="primary-button" id="saveAnnotation" type="submit">保存到云端</button><button class="ghost-button clear-button" id="clearAnnotation" type="button">清除文字补充</button><span class="save-state" id="saveState">云端持久化</span></div></form></section>`;
+      </div><div class="edit-actions"><button class="primary-button" id="saveAnnotation" type="submit">保存到云端</button><button class="ghost-button clear-button" id="clearAnnotation" type="button">清除文字补充</button><span class="save-state" id="saveState">云端持久化</span></div></form></section>
+      <section class="delete-trade-section"><div><h3>不计入统计</h3><p>将整笔交易移入回收站。复盘文字和图片都会保留，之后可以恢复。</p></div><button class="ghost-button delete-trade-button" id="deleteTrade" type="button">移入回收站</button></section>`;
     document.body.classList.add("drawer-open");
     loadAttachmentPreviews(trade);
     $("attachmentInput")?.addEventListener("change", (event) => uploadAttachmentFiles(event.currentTarget.files, trade));
@@ -431,6 +458,23 @@
         await refreshDashboard(); openDrawer(dashboard.trades.find((row) => row.tradeId === trade.tradeId)); notify(`${trade.tradeId} 的补充信息已清除`);
       } catch (error) { notify(error.message, true); }
     });
+    let deleteArmed = false;
+    $("deleteTrade").addEventListener("click", async (event) => {
+      if (!deleteArmed) {
+        deleteArmed = true;
+        event.currentTarget.textContent = "再次点击，确认移除";
+        event.currentTarget.classList.add("armed");
+        return;
+      }
+      event.currentTarget.disabled = true;
+      event.currentTarget.textContent = "正在移除…";
+      try {
+        await apiFetch(`/api/trades/${encodeURIComponent(trade.tradeId)}/record`, { method: "DELETE" });
+        await refreshDashboard();
+        openTrashDrawer();
+        notify(`${trade.tradeId} 已移入回收站，统计已更新`);
+      } catch (error) { event.currentTarget.disabled = false; event.currentTarget.textContent = "移入回收站"; event.currentTarget.classList.remove("armed"); deleteArmed = false; notify(error.message, true); }
+    });
   }
 
   function closeDrawer() { closeImageLightbox(); document.body.classList.remove("drawer-open"); activeTradeId = null; clearAttachmentUrls(); }
@@ -472,6 +516,7 @@
 
   $("loginButton").addEventListener("click", login);
   $("logoutButton").addEventListener("click", () => { clearToken(); setAuthVisible(true); });
+  $("trashButton").addEventListener("click", openTrashDrawer);
   $("exportButton").addEventListener("click", exportBackup);
   Object.values(selects).forEach((select) => select.addEventListener("change", render));
   $("resetFilters").addEventListener("click", () => { Object.values(selects).forEach((select) => { select.value = ""; }); render(); });

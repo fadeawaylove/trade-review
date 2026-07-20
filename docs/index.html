@@ -7,8 +7,8 @@
   <meta name="description" content="私人期货日内交易复盘台">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src https://trade-review-api.dengrunting.workers.dev; img-src 'self' blob: data: https://avatars.githubusercontent.com https://trade-review-api.dengrunting.workers.dev; style-src 'self'; script-src 'self'; base-uri 'none'; form-action 'none'">
   <title>日内交易复盘台</title>
-  <link rel="stylesheet" href="./styles.css?v=20260720-3">
-  <link rel="stylesheet" href="./readability.css?v=20260720-3">
+  <link rel="stylesheet" href="./styles.css?v=20260720-4">
+  <link rel="stylesheet" href="./readability.css?v=20260720-4">
 </head>
 <body>
   <div class="grain" aria-hidden="true"></div>
@@ -49,6 +49,7 @@
         </div>
         <div class="user-tools">
           <span class="cloud-state"><i></i>云端已同步</span>
+          <button class="ghost-button trash-button" id="trashButton">回收站 <span class="trash-count" id="trashCount">0</span></button>
           <button class="ghost-button" id="exportButton">导出备份</button>
           <div class="user-chip"><img id="userAvatar" alt=""><span id="userName"></span><button id="logoutButton" title="退出登录">退出</button></div>
         </div>
@@ -111,6 +112,6 @@
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
   <script src="./config.js"></script>
-  <script src="./app.js?v=20260720-3"></script>
+  <script src="./app.js?v=20260720-4"></script>
 </body>
 </html>

@@ -44,3 +44,13 @@ CREATE TABLE IF NOT EXISTS trade_attachments (
 );
 
 CREATE INDEX IF NOT EXISTS idx_trade_attachments_trade_id ON trade_attachments(trade_id, created_at);
+
+-- Keep deleted trades recoverable. Overrides and chart evidence remain untouched,
+-- so restoring a trade brings back the complete review record.
+CREATE TABLE IF NOT EXISTS deleted_trades (
+  trade_id TEXT PRIMARY KEY,
+  deleted_by TEXT NOT NULL,
+  deleted_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_deleted_trades_deleted_at ON deleted_trades(deleted_at);

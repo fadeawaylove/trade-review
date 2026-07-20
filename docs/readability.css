@@ -64,6 +64,7 @@ footer{font-size:12px;line-height:1.7}
 .toast{font-size:13px}
 .evidence-heading small{font-size:12px}.evidence-heading>span{font-size:13px}.evidence-meta b{font-size:13px}.evidence-meta small,.evidence-delete{font-size:12px}.evidence-empty{font-size:13px}.evidence-upload span,.evidence-paste span{font-size:14px}.evidence-upload small,.evidence-paste small,.upload-state{font-size:12px}
 .image-lightbox figcaption{font-size:14px}.image-lightbox-hint{font-size:12px}
+.trash-card-main>span,.trash-card p,.delete-trade-section p{font-size:13px}.trash-card h3,.delete-trade-section h3{font-size:21px}.trash-card-side b{font-size:21px}.trash-intro,.trash-empty{font-size:14px}
 
 @media(max-width:1060px){
   .app{grid-template-columns:1fr}

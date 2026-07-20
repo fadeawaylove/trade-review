@@ -149,6 +149,9 @@ async function loadDashboard(env) {
   const overrideRows = await env.DB.prepare("SELECT trade_id, payload, updated_at FROM overrides").all();
   const overrides = Object.fromEntries((overrideRows.results || []).map((row) => [row.trade_id, JSON.parse(row.payload)]));
   const attachmentRows = await env.DB.prepare("SELECT id, trade_id, file_name, mime_type, byte_size, created_at FROM trade_attachments ORDER BY created_at").all();
+  const deletedRows = await env.DB.prepare("SELECT trade_id, deleted_at FROM deleted_trades ORDER BY deleted_at DESC").all();
+  const latestAudit = await env.DB.prepare("SELECT created_at FROM audit_log ORDER BY created_at DESC LIMIT 1").first();
+  const deletedById = new Map((deletedRows.results || []).map((row) => [row.trade_id, row.deleted_at]));
   const attachments = new Map();
   for (const row of attachmentRows.results || []) {
     const rows = attachments.get(row.trade_id) || [];
@@ -157,7 +160,10 @@ async function loadDashboard(env) {
   }
   let latest = datasetRow.updated_at;
   for (const row of overrideRows.results || []) if (row.updated_at > latest) latest = row.updated_at;
-  const trades = (data.trades || []).map((base) => {
+  for (const row of attachmentRows.results || []) if (row.created_at > latest) latest = row.created_at;
+  for (const row of deletedRows.results || []) if (row.deleted_at > latest) latest = row.deleted_at;
+  if (latestAudit?.created_at > latest) latest = latestAudit.created_at;
+  const allTrades = (data.trades || []).map((base) => {
     const override = overrides[base.tradeId] || {};
     const trade = { ...base, ...override };
     if (override.date) {
@@ -169,7 +175,12 @@ async function loadDashboard(env) {
     trade.attachments = attachments.get(base.tradeId) || [];
     return trade;
   });
-  return { ...data, meta: { ...(data.meta || {}), cloudUpdatedAt: latest }, trades };
+  const trades = allTrades.filter((trade) => !deletedById.has(trade.tradeId));
+  const deletedTrades = allTrades
+    .filter((trade) => deletedById.has(trade.tradeId))
+    .map((trade) => ({ ...trade, deletedAt: deletedById.get(trade.tradeId) }))
+    .sort((a, b) => String(b.deletedAt).localeCompare(String(a.deletedAt)));
+  return { ...data, meta: { ...(data.meta || {}), cloudUpdatedAt: latest }, trades, deletedTrades };
 }
 
 async function handleOAuthLogin(request, env) {
@@ -295,6 +306,30 @@ export default {
         env.DB.prepare("INSERT INTO audit_log (trade_id, action, actor, created_at) VALUES (?1, ?2, ?3, ?4)").bind(row.trade_id, "attachment-delete", user.login, now),
       ]);
       return json(request, env, { ok: true, tradeId: row.trade_id, updatedAt: now });
+    }
+
+    const deleteRecord = url.pathname.match(/^\/api\/trades\/(TR-\d+)\/record$/);
+    if (deleteRecord && request.method === "DELETE") {
+      const dashboard = await loadDashboard(env);
+      if (!dashboard?.trades?.some((trade) => trade.tradeId === deleteRecord[1])) return json(request, env, { error: "交易编号不存在或已在回收站" }, 404);
+      const now = new Date().toISOString();
+      await env.DB.batch([
+        env.DB.prepare("INSERT INTO deleted_trades (trade_id, deleted_by, deleted_at) VALUES (?1, ?2, ?3) ON CONFLICT(trade_id) DO UPDATE SET deleted_by = excluded.deleted_by, deleted_at = excluded.deleted_at").bind(deleteRecord[1], user.login, now),
+        env.DB.prepare("INSERT INTO audit_log (trade_id, action, actor, created_at) VALUES (?1, ?2, ?3, ?4)").bind(deleteRecord[1], "trade-delete", user.login, now),
+      ]);
+      return json(request, env, { ok: true, tradeId: deleteRecord[1], deletedAt: now });
+    }
+
+    const restoreRecord = url.pathname.match(/^\/api\/trades\/(TR-\d+)\/restore$/);
+    if (restoreRecord && request.method === "POST") {
+      const dashboard = await loadDashboard(env);
+      if (!dashboard?.deletedTrades?.some((trade) => trade.tradeId === restoreRecord[1])) return json(request, env, { error: "回收站中没有这笔交易" }, 404);
+      const now = new Date().toISOString();
+      await env.DB.batch([
+        env.DB.prepare("DELETE FROM deleted_trades WHERE trade_id = ?1").bind(restoreRecord[1]),
+        env.DB.prepare("INSERT INTO audit_log (trade_id, action, actor, created_at) VALUES (?1, ?2, ?3, ?4)").bind(restoreRecord[1], "trade-restore", user.login, now),
+      ]);
+      return json(request, env, { ok: true, tradeId: restoreRecord[1], restoredAt: now });
     }
 
     const match = url.pathname.match(/^\/api\/trades\/(TR-\d+)$/);
