@@ -12,6 +12,7 @@
   let attachmentObjectUrls = [];
   let activeTradeId = null;
   let attachmentUploadBusy = false;
+  let lightboxTrigger = null;
 
   function readToken() {
     try { return localStorage.getItem(TOKEN_KEY) || sessionStorage.getItem(TOKEN_KEY) || ""; }
@@ -48,6 +49,25 @@
   function clearAttachmentUrls() {
     attachmentObjectUrls.forEach((url) => URL.revokeObjectURL(url));
     attachmentObjectUrls = [];
+  }
+
+  function openImageLightbox(url, attachment, trigger) {
+    lightboxTrigger = trigger || null;
+    $("imageLightboxImage").src = url;
+    $("imageLightboxImage").alt = attachment.fileName || "交易复盘图";
+    $("imageLightboxCaption").textContent = attachment.fileName || "交易复盘图";
+    $("imageLightbox").hidden = false;
+    document.body.classList.add("lightbox-open");
+    $("imageLightboxClose").focus();
+  }
+
+  function closeImageLightbox() {
+    if ($("imageLightbox").hidden) return;
+    $("imageLightbox").hidden = true;
+    document.body.classList.remove("lightbox-open");
+    $("imageLightboxImage").removeAttribute("src");
+    if (lightboxTrigger?.isConnected) lightboxTrigger.focus();
+    lightboxTrigger = null;
   }
 
   async function prepareAttachment(file) {
@@ -96,7 +116,7 @@
         image.src = url;
         image.alt = `${trade.tradeId} ${attachment.fileName}`;
         host.replaceChildren(image);
-        host.addEventListener("click", () => window.open(url, "_blank", "noopener"));
+        host.addEventListener("click", () => openImageLightbox(url, attachment, host));
       } catch (error) { host.textContent = error.message; host.classList.add("failed"); }
     }
   }
@@ -413,7 +433,7 @@
     });
   }
 
-  function closeDrawer() { document.body.classList.remove("drawer-open"); activeTradeId = null; clearAttachmentUrls(); }
+  function closeDrawer() { closeImageLightbox(); document.body.classList.remove("drawer-open"); activeTradeId = null; clearAttachmentUrls(); }
 
   async function refreshDashboard() {
     dashboard = await apiFetch("/api/dashboard");
@@ -457,7 +477,13 @@
   $("resetFilters").addEventListener("click", () => { Object.values(selects).forEach((select) => { select.value = ""; }); render(); });
   $("drawerClose").addEventListener("click", closeDrawer);
   $("drawerMask").addEventListener("click", closeDrawer);
-  document.addEventListener("keydown", (event) => { if (event.key === "Escape") closeDrawer(); });
+  $("imageLightboxClose").addEventListener("click", closeImageLightbox);
+  $("imageLightbox").addEventListener("click", (event) => { if (event.target === event.currentTarget) closeImageLightbox(); });
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape") return;
+    if (!$("imageLightbox").hidden) closeImageLightbox();
+    else closeDrawer();
+  });
   document.addEventListener("paste", (event) => {
     if (!activeTradeId || !document.body.classList.contains("drawer-open")) return;
     const files = clipboardEventImages(event.clipboardData);

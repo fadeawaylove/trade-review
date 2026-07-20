@@ -7,8 +7,8 @@
   <meta name="description" content="私人期货日内交易复盘台">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src https://trade-review-api.dengrunting.workers.dev; img-src 'self' blob: data: https://avatars.githubusercontent.com https://trade-review-api.dengrunting.workers.dev; style-src 'self'; script-src 'self'; base-uri 'none'; form-action 'none'">
   <title>日内交易复盘台</title>
-  <link rel="stylesheet" href="./styles.css?v=20260720-2">
-  <link rel="stylesheet" href="./readability.css?v=20260720-2">
+  <link rel="stylesheet" href="./styles.css?v=20260720-3">
+  <link rel="stylesheet" href="./readability.css?v=20260720-3">
 </head>
 <body>
   <div class="grain" aria-hidden="true"></div>
@@ -100,9 +100,17 @@
 
   <div class="drawer-mask" id="drawerMask"></div>
   <aside class="drawer" id="drawer"><button class="drawer-close" id="drawerClose" aria-label="关闭">×</button><div id="drawerContent"></div></aside>
+  <div class="image-lightbox" id="imageLightbox" role="dialog" aria-modal="true" aria-labelledby="imageLightboxCaption" hidden>
+    <button class="image-lightbox-close" id="imageLightboxClose" type="button" aria-label="关闭大图">×</button>
+    <figure>
+      <img id="imageLightboxImage" alt="">
+      <figcaption id="imageLightboxCaption"></figcaption>
+    </figure>
+    <span class="image-lightbox-hint">点击空白区域或按 Esc 关闭</span>
+  </div>
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
   <script src="./config.js"></script>
-  <script src="./app.js?v=20260720-2"></script>
+  <script src="./app.js?v=20260720-3"></script>
 </body>
 </html>
