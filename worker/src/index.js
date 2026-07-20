@@ -171,7 +171,10 @@ async function loadDashboard(env) {
       trade.dateLabel = override.date;
       trade.dateStatus = "已确认";
     }
-    trade.rMultiple = Number(trade.plannedRisk) > 0 ? Math.round((trade.netPnl / Number(trade.plannedRisk)) * 100) / 100 : null;
+    trade.plannedR = Number(trade.plannedRisk) > 0 ? Math.round((trade.netPnl / Number(trade.plannedRisk)) * 100) / 100 : null;
+    trade.actualR = Number(trade.actualRisk) > 0 ? Math.round((trade.netPnl / Number(trade.actualRisk)) * 100) / 100 : null;
+    // Keep the original field for older clients and exported datasets.
+    trade.rMultiple = trade.plannedR;
     trade.attachments = attachments.get(base.tradeId) || [];
     return trade;
   });
