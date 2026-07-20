@@ -9,6 +9,7 @@
   let dashboard = null;
   let token = readToken();
   let toastTimer = null;
+  let attachmentObjectUrls = [];
 
   function readToken() {
     try { return localStorage.getItem(TOKEN_KEY) || sessionStorage.getItem(TOKEN_KEY) || ""; }
@@ -40,6 +41,63 @@
     const h = Math.floor(seconds / 3600), m = Math.floor((seconds % 3600) / 60), s = Math.round(seconds % 60);
     return h ? `${h}时${m}分` : m ? `${m}分${s}秒` : `${s}秒`;
   };
+  const formatBytes = (bytes) => Number(bytes || 0) >= 1024 * 1024 ? `${(Number(bytes) / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(Number(bytes || 0) / 1024))} KB`;
+
+  function clearAttachmentUrls() {
+    attachmentObjectUrls.forEach((url) => URL.revokeObjectURL(url));
+    attachmentObjectUrls = [];
+  }
+
+  async function prepareAttachment(file) {
+    const maxBytes = 1_700_000;
+    if (!["image/png", "image/jpeg", "image/webp"].includes(file.type)) throw new Error("仅支持 PNG、JPEG 或 WebP 图片");
+    if (file.size <= maxBytes) return { blob: file, fileName: file.name };
+
+    const sourceUrl = URL.createObjectURL(file);
+    try {
+      const source = await new Promise((resolve, reject) => {
+        const image = new Image();
+        image.onload = () => resolve(image);
+        image.onerror = () => reject(new Error("无法读取这张图片"));
+        image.src = sourceUrl;
+      });
+      let scale = Math.min(1, 2400 / Math.max(source.naturalWidth, source.naturalHeight));
+      let result = null;
+      for (let attempt = 0; attempt < 6; attempt += 1) {
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.max(1, Math.round(source.naturalWidth * scale));
+        canvas.height = Math.max(1, Math.round(source.naturalHeight * scale));
+        const context = canvas.getContext("2d", { alpha: false });
+        context.fillStyle = "#ffffff";
+        context.fillRect(0, 0, canvas.width, canvas.height);
+        context.drawImage(source, 0, 0, canvas.width, canvas.height);
+        const quality = Math.max(.68, .92 - attempt * .05);
+        result = await new Promise((resolve) => canvas.toBlob(resolve, "image/webp", quality));
+        if (result && result.size <= maxBytes) break;
+        scale *= .82;
+      }
+      if (!result || result.size > maxBytes) throw new Error("图片压缩后仍然过大，请先裁剪后上传");
+      return { blob: result, fileName: file.name.replace(/\.[^.]+$/, "") + ".webp" };
+    } finally { URL.revokeObjectURL(sourceUrl); }
+  }
+
+  async function loadAttachmentPreviews(trade) {
+    for (const attachment of trade.attachments || []) {
+      const host = document.querySelector(`[data-attachment-id="${attachment.id}"] .evidence-preview`);
+      if (!host) continue;
+      try {
+        const response = await fetch(`${API}/api/attachments/${encodeURIComponent(attachment.id)}`, { headers: { Authorization: `Bearer ${token}` } });
+        if (!response.ok) throw new Error("图片读取失败");
+        const url = URL.createObjectURL(await response.blob());
+        attachmentObjectUrls.push(url);
+        const image = document.createElement("img");
+        image.src = url;
+        image.alt = `${trade.tradeId} ${attachment.fileName}`;
+        host.replaceChildren(image);
+        host.addEventListener("click", () => window.open(url, "_blank", "noopener"));
+      } catch (error) { host.textContent = error.message; host.classList.add("failed"); }
+    }
+  }
 
   function notify(message, error = false) {
     const node = $("toast");
@@ -197,7 +255,7 @@
     const body = $("tradeRows"); body.innerHTML = ""; $("emptyState").hidden = trades.length > 0;
     [...trades].reverse().forEach((trade) => {
       const row = document.createElement("tr"); row.tabIndex = 0;
-      row.innerHTML = `<td>${esc(trade.tradeId)}</td><td>${esc(trade.dateLabel)}</td><td>${esc(trade.instrument)} / ${esc(trade.contract)}</td><td><span class="direction-pill ${trade.direction === "多" ? "long" : "short"}">${esc(trade.direction)}</span></td><td>${esc(trade.entryTime)} → ${esc(trade.exitTime)}</td><td>${esc(trade.holdingLabel)}</td><td>${trade.entryQty}</td><td class="${signedClass(trade.grossPnl)}">${money(trade.grossPnl)}</td><td>${money(trade.fees)}</td><td class="${signedClass(trade.netPnl)}">${money(trade.netPnl)}</td><td>${esc(trade.result)}</td>`;
+      row.innerHTML = `<td>${esc(trade.tradeId)}</td><td>${esc(trade.dateLabel)}</td><td>${esc(trade.instrument)} / ${esc(trade.contract)}</td><td><span class="direction-pill ${trade.direction === "多" ? "long" : "short"}">${esc(trade.direction)}</span></td><td>${esc(trade.entryTime)} → ${esc(trade.exitTime)}</td><td>${esc(trade.holdingLabel)}</td><td>${trade.entryQty}</td><td class="${signedClass(trade.grossPnl)}">${money(trade.grossPnl)}</td><td>${money(trade.fees)}</td><td class="${signedClass(trade.netPnl)}">${money(trade.netPnl)}</td><td>${esc(trade.result)}</td><td><span class="evidence-count ${(trade.attachments || []).length ? "has-evidence" : ""}">${(trade.attachments || []).length || "—"}</span></td>`;
       row.addEventListener("click", () => openDrawer(trade));
       row.addEventListener("keydown", (event) => { if (event.key === "Enter") openDrawer(trade); });
       body.append(row);
@@ -215,10 +273,22 @@
   }
 
   function openDrawer(trade) {
+    clearAttachmentUrls();
+    const attachments = trade.attachments || [];
+    const evidenceCards = attachments.map((attachment) => `<article class="evidence-card" data-attachment-id="${esc(attachment.id)}">
+      <button class="evidence-preview" type="button" aria-label="查看 ${esc(attachment.fileName)}"><span>正在读取图表…</span></button>
+      <div class="evidence-meta"><div><b>${esc(attachment.fileName)}</b><small>${formatBytes(attachment.byteSize)}</small></div><button class="evidence-delete" type="button" data-delete-attachment="${esc(attachment.id)}">删除</button></div>
+    </article>`).join("");
     $("drawerContent").innerHTML = `<div class="drawer-sub">${esc(trade.tradeId)} · ${esc(trade.dateLabel)} · ${esc(trade.session)}</div>
       <h2>${esc(trade.instrument)} ${esc(trade.contract)} · ${esc(trade.direction)}单</h2>
       <div class="detail-hero"><div><span>净盈亏</span><b class="${signedClass(trade.netPnl)}">¥${money(trade.netPnl)}</b></div><div><span>盈亏点数</span><b>${num(trade.points)} 点</b></div></div>
       <dl class="detail-list"><dt>开仓</dt><dd>${esc(trade.entryTime)} · ${trade.entryQty}手 · 加权价 ${num(trade.entryPrice)}</dd><dt>平仓</dt><dd>${esc(trade.exitTime)} · ${trade.exitQty}手 · 加权价 ${num(trade.exitPrice)}</dd><dt>持仓时长</dt><dd>${esc(trade.holdingLabel)}</dd><dt>毛盈亏</dt><dd>¥${money(trade.grossPnl)}</dd><dt>手续费</dt><dd>¥${money(trade.fees)}</dd></dl>
+      <section class="evidence-section"><div class="evidence-heading"><div><small>CHART EVIDENCE</small><h3>图表证据</h3></div><span>${attachments.length} / 5 张</span></div>
+        <p class="edit-hint">保存标有入场、止盈、止损和交易想法的 K 线截图，之后可按交易回看。</p>
+        <div class="evidence-grid">${evidenceCards || `<div class="evidence-empty">这笔交易还没有复盘图</div>`}</div>
+        <label class="evidence-upload ${attachments.length >= 5 ? "disabled" : ""}"><span>＋ 添加复盘图</span><small>支持多选，过大的图片会自动压缩</small><input id="attachmentInput" type="file" accept="image/png,image/jpeg,image/webp" multiple ${attachments.length >= 5 ? "disabled" : ""}></label>
+        <div class="upload-state" id="uploadState"></div>
+      </section>
       <section class="edit-section"><h3>补充复盘信息</h3><p class="edit-hint">保存后立即写入云端数据库，并同步到所有设备。</p>
       <form id="annotationForm"><div class="edit-grid">
         <label class="edit-field"><span>交易日期</span><input name="date" type="date" value="${esc(trade.date || "")}"></label>
@@ -232,8 +302,43 @@
         <label class="edit-field full"><span>入场理由</span><textarea name="entryReason">${esc(trade.entryReason || "")}</textarea></label>
         <label class="edit-field full"><span>出场理由</span><textarea name="exitReason">${esc(trade.exitReason || "")}</textarea></label>
         <label class="edit-field full"><span>复盘备注</span><textarea name="reviewNotes">${esc(trade.reviewNotes || "")}</textarea></label>
-      </div><div class="edit-actions"><button class="primary-button" id="saveAnnotation" type="submit">保存到云端</button><button class="ghost-button clear-button" id="clearAnnotation" type="button">清除本笔补充</button><span class="save-state" id="saveState">云端持久化</span></div></form></section>`;
+      </div><div class="edit-actions"><button class="primary-button" id="saveAnnotation" type="submit">保存到云端</button><button class="ghost-button clear-button" id="clearAnnotation" type="button">清除文字补充</button><span class="save-state" id="saveState">云端持久化</span></div></form></section>`;
     document.body.classList.add("drawer-open");
+    loadAttachmentPreviews(trade);
+    $("attachmentInput")?.addEventListener("change", async (event) => {
+      const files = [...event.currentTarget.files];
+      if (!files.length) return;
+      if (attachments.length + files.length > 5) { notify("每笔交易最多保存 5 张复盘图", true); event.currentTarget.value = ""; return; }
+      event.currentTarget.disabled = true;
+      $("uploadState").textContent = `正在处理 1 / ${files.length}…`;
+      try {
+        for (let index = 0; index < files.length; index += 1) {
+          $("uploadState").textContent = `正在处理 ${index + 1} / ${files.length}…`;
+          const prepared = await prepareAttachment(files[index]);
+          await apiFetch(`/api/trades/${encodeURIComponent(trade.tradeId)}/attachments`, {
+            method: "POST",
+            body: prepared.blob,
+            headers: { "Content-Type": prepared.blob.type, "X-File-Name": encodeURIComponent(prepared.fileName) },
+          });
+        }
+        await refreshDashboard();
+        openDrawer(dashboard.trades.find((row) => row.tradeId === trade.tradeId));
+        notify(`${files.length} 张复盘图已保存到云端`);
+      } catch (error) { event.currentTarget.disabled = false; $("uploadState").textContent = "上传失败"; notify(error.message, true); }
+    });
+    document.querySelectorAll("[data-delete-attachment]").forEach((button) => {
+      let armed = false;
+      button.addEventListener("click", async () => {
+        if (!armed) { armed = true; button.textContent = "确认删除"; return; }
+        button.disabled = true;
+        try {
+          await apiFetch(`/api/attachments/${encodeURIComponent(button.dataset.deleteAttachment)}`, { method: "DELETE" });
+          await refreshDashboard();
+          openDrawer(dashboard.trades.find((row) => row.tradeId === trade.tradeId));
+          notify("复盘图已删除");
+        } catch (error) { button.disabled = false; notify(error.message, true); }
+      });
+    });
     $("annotationForm").addEventListener("submit", async (event) => {
       event.preventDefault();
       const button = $("saveAnnotation"); button.disabled = true; $("saveState").textContent = "正在同步…";
@@ -255,7 +360,7 @@
     });
   }
 
-  function closeDrawer() { document.body.classList.remove("drawer-open"); }
+  function closeDrawer() { document.body.classList.remove("drawer-open"); clearAttachmentUrls(); }
 
   async function refreshDashboard() {
     dashboard = await apiFetch("/api/dashboard");

@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="theme-color" content="#f6f1e7">
   <meta name="description" content="私人期货日内交易复盘台">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src https://trade-review-api.dengrunting.workers.dev; img-src 'self' data: https://avatars.githubusercontent.com; style-src 'self'; script-src 'self'; base-uri 'none'; form-action 'none'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src https://trade-review-api.dengrunting.workers.dev; img-src 'self' blob: data: https://avatars.githubusercontent.com https://trade-review-api.dengrunting.workers.dev; style-src 'self'; script-src 'self'; base-uri 'none'; form-action 'none'">
   <title>日内交易复盘台</title>
   <link rel="stylesheet" href="./styles.css?v=20260719-1">
   <link rel="stylesheet" href="./readability.css?v=20260719-1">
@@ -89,7 +89,7 @@
       <section class="panel ledger-panel">
         <div class="panel-head"><div><small>TRADE LEDGER</small><h2>完整交易明细</h2></div><span>点击记录补充复盘</span></div>
         <div class="table-wrap">
-          <table><thead><tr><th>编号</th><th>日期</th><th>品种 / 合约</th><th>方向</th><th>开仓 → 平仓</th><th>持仓</th><th>手数</th><th>毛盈亏</th><th>手续费</th><th>净盈亏</th><th>结果</th></tr></thead><tbody id="tradeRows"></tbody></table>
+          <table><thead><tr><th>编号</th><th>日期</th><th>品种 / 合约</th><th>方向</th><th>开仓 → 平仓</th><th>持仓</th><th>手数</th><th>毛盈亏</th><th>手续费</th><th>净盈亏</th><th>结果</th><th>复盘图</th></tr></thead><tbody id="tradeRows"></tbody></table>
           <div class="empty" id="emptyState" hidden>当前筛选条件下没有交易。</div>
         </div>
       </section>
@@ -103,6 +103,6 @@
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
   <script src="./config.js"></script>
-  <script src="./app.js?v=20260719-2"></script>
+  <script src="./app.js?v=20260720-1"></script>
 </body>
 </html>

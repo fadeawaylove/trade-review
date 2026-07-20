@@ -62,6 +62,7 @@ footer{font-size:12px;line-height:1.7}
 .edit-field input,.edit-field select,.edit-field textarea{padding:12px 13px;font-size:15px}
 .save-state{font-size:12px}
 .toast{font-size:13px}
+.evidence-heading small{font-size:12px}.evidence-heading>span{font-size:13px}.evidence-meta b{font-size:13px}.evidence-meta small,.evidence-delete{font-size:12px}.evidence-empty{font-size:13px}.evidence-upload span{font-size:14px}.evidence-upload small,.upload-state{font-size:12px}
 
 @media(max-width:1060px){
   .app{grid-template-columns:1fr}

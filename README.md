@@ -1,5 +1,7 @@
 # Trade Review Cloud
 
+交易详情支持图表证据附件：每笔交易最多 5 张 PNG、JPEG 或 WebP，单张最大 1.7 MB。较大的图片由浏览器自动压缩，文件存入受 GitHub 登录保护的 Cloudflare D1。
+
 私人期货日内交易复盘台的公开程序仓库。
 
 ## 隐私边界
@@ -27,4 +29,3 @@
 5. 将 Worker URL 写入 `docs/config.js`；
 6. 推送到 GitHub，触发 Pages 部署；
 7. 使用本地生成的临时 seed SQL 初始化 D1。
-

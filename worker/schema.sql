@@ -31,3 +31,16 @@ CREATE TABLE IF NOT EXISTS oauth_receipts (
 );
 
 CREATE INDEX IF NOT EXISTS idx_oauth_receipts_expires_at ON oauth_receipts(expires_at);
+
+CREATE TABLE IF NOT EXISTS trade_attachments (
+  id TEXT PRIMARY KEY,
+  trade_id TEXT NOT NULL,
+  file_name TEXT NOT NULL,
+  mime_type TEXT NOT NULL,
+  byte_size INTEGER NOT NULL,
+  image_data BLOB NOT NULL,
+  created_by TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_trade_attachments_trade_id ON trade_attachments(trade_id, created_at);

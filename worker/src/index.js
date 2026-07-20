@@ -1,5 +1,8 @@
 const encoder = new TextEncoder();
 const SESSION_TTL_SECONDS = 60 * 60 * 24 * 30;
+const MAX_ATTACHMENT_BYTES = 1_700_000;
+const MAX_ATTACHMENTS_PER_TRADE = 5;
+const ALLOWED_IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);
 const allowedOverrideFields = new Set([
   "date", "plannedRisk", "actualRisk", "setup", "marketEnvironment", "executionScore",
   "violationTag", "entryReason", "exitReason", "emotion", "reviewNotes",
@@ -70,12 +73,35 @@ function corsHeaders(request, env) {
   const origin = request.headers.get("Origin");
   return origin === env.ALLOWED_ORIGIN ? {
     "Access-Control-Allow-Origin": origin,
-    "Access-Control-Allow-Headers": "Authorization, Content-Type",
+    "Access-Control-Allow-Headers": "Authorization, Content-Type, X-File-Name",
     "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
     "Access-Control-Max-Age": "86400",
     Vary: "Origin",
   } : {};
 }
+
+function attachmentHeaders(request, env, mimeType, byteSize) {
+  return {
+    "Content-Type": mimeType,
+    "Content-Length": String(byteSize),
+    "Cache-Control": "private, no-store",
+    "X-Content-Type-Options": "nosniff",
+    ...corsHeaders(request, env),
+  };
+}
+
+function cleanFileName(value) {
+  return decodeURIComponent(String(value || "复盘图")).replace(/[\\/:*?"<>|\u0000-\u001f]/g, "_").trim().slice(0, 120) || "复盘图";
+}
+
+const attachmentMeta = (row) => ({
+  id: row.id,
+  tradeId: row.trade_id,
+  fileName: row.file_name,
+  mimeType: row.mime_type,
+  byteSize: row.byte_size,
+  createdAt: row.created_at,
+});
 
 function json(request, env, payload, status = 200, extra = {}) {
   return new Response(JSON.stringify(payload), {
@@ -122,6 +148,13 @@ async function loadDashboard(env) {
   const data = JSON.parse(datasetRow.payload);
   const overrideRows = await env.DB.prepare("SELECT trade_id, payload, updated_at FROM overrides").all();
   const overrides = Object.fromEntries((overrideRows.results || []).map((row) => [row.trade_id, JSON.parse(row.payload)]));
+  const attachmentRows = await env.DB.prepare("SELECT id, trade_id, file_name, mime_type, byte_size, created_at FROM trade_attachments ORDER BY created_at").all();
+  const attachments = new Map();
+  for (const row of attachmentRows.results || []) {
+    const rows = attachments.get(row.trade_id) || [];
+    rows.push(attachmentMeta(row));
+    attachments.set(row.trade_id, rows);
+  }
   let latest = datasetRow.updated_at;
   for (const row of overrideRows.results || []) if (row.updated_at > latest) latest = row.updated_at;
   const trades = (data.trades || []).map((base) => {
@@ -133,6 +166,7 @@ async function loadDashboard(env) {
       trade.dateStatus = "已确认";
     }
     trade.rMultiple = Number(trade.plannedRisk) > 0 ? Math.round((trade.netPnl / Number(trade.plannedRisk)) * 100) / 100 : null;
+    trade.attachments = attachments.get(base.tradeId) || [];
     return trade;
   });
   return { ...data, meta: { ...(data.meta || {}), cloudUpdatedAt: latest }, trades };
@@ -219,6 +253,48 @@ export default {
     if (url.pathname === "/api/export" && request.method === "GET") {
       const dashboard = await loadDashboard(env);
       return json(request, env, dashboard || {}, 200, { "Content-Disposition": "attachment; filename=trade-review-cloud-export.json" });
+    }
+
+    const attachmentCollection = url.pathname.match(/^\/api\/trades\/(TR-\d+)\/attachments$/);
+    if (attachmentCollection && request.method === "POST") {
+      try {
+        const tradeId = attachmentCollection[1];
+        const dashboard = await loadDashboard(env);
+        if (!dashboard?.trades?.some((trade) => trade.tradeId === tradeId)) return json(request, env, { error: "交易编号不存在" }, 404);
+        const mimeType = (request.headers.get("Content-Type") || "").split(";")[0].toLowerCase();
+        if (!ALLOWED_IMAGE_TYPES.has(mimeType)) return json(request, env, { error: "仅支持 PNG、JPEG 或 WebP 图片" }, 415);
+        const current = await env.DB.prepare("SELECT COUNT(*) AS count FROM trade_attachments WHERE trade_id = ?1").bind(tradeId).first();
+        if (Number(current?.count || 0) >= MAX_ATTACHMENTS_PER_TRADE) return json(request, env, { error: `每笔交易最多保存 ${MAX_ATTACHMENTS_PER_TRADE} 张复盘图` }, 409);
+        const bytes = await request.arrayBuffer();
+        if (!bytes.byteLength) return json(request, env, { error: "图片内容为空" }, 400);
+        if (bytes.byteLength > MAX_ATTACHMENT_BYTES) return json(request, env, { error: "图片超过 1.7 MB，请压缩后重试" }, 413);
+        const id = crypto.randomUUID();
+        const now = new Date().toISOString();
+        const fileName = cleanFileName(request.headers.get("X-File-Name"));
+        await env.DB.batch([
+          env.DB.prepare("INSERT INTO trade_attachments (id, trade_id, file_name, mime_type, byte_size, image_data, created_by, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)")
+            .bind(id, tradeId, fileName, mimeType, bytes.byteLength, bytes, user.login, now),
+          env.DB.prepare("INSERT INTO audit_log (trade_id, action, actor, created_at) VALUES (?1, ?2, ?3, ?4)").bind(tradeId, "attachment-upload", user.login, now),
+        ]);
+        return json(request, env, { ok: true, attachment: attachmentMeta({ id, trade_id: tradeId, file_name: fileName, mime_type: mimeType, byte_size: bytes.byteLength, created_at: now }) }, 201);
+      } catch (error) { return json(request, env, { error: error.message || "图片上传失败" }, 400); }
+    }
+
+    const attachmentItem = url.pathname.match(/^\/api\/attachments\/([0-9a-f-]{36})$/i);
+    if (attachmentItem && request.method === "GET") {
+      const row = await env.DB.prepare("SELECT mime_type, byte_size, image_data FROM trade_attachments WHERE id = ?1").bind(attachmentItem[1]).first();
+      if (!row) return json(request, env, { error: "复盘图不存在" }, 404);
+      return new Response(new Uint8Array(row.image_data), { status: 200, headers: attachmentHeaders(request, env, row.mime_type, row.byte_size) });
+    }
+    if (attachmentItem && request.method === "DELETE") {
+      const row = await env.DB.prepare("SELECT trade_id FROM trade_attachments WHERE id = ?1").bind(attachmentItem[1]).first();
+      if (!row) return json(request, env, { error: "复盘图不存在" }, 404);
+      const now = new Date().toISOString();
+      await env.DB.batch([
+        env.DB.prepare("DELETE FROM trade_attachments WHERE id = ?1").bind(attachmentItem[1]),
+        env.DB.prepare("INSERT INTO audit_log (trade_id, action, actor, created_at) VALUES (?1, ?2, ?3, ?4)").bind(row.trade_id, "attachment-delete", user.login, now),
+      ]);
+      return json(request, env, { ok: true, tradeId: row.trade_id, updatedAt: now });
     }
 
     const match = url.pathname.match(/^\/api\/trades\/(TR-\d+)$/);
