@@ -13,6 +13,8 @@
   let activeTradeId = null;
   let attachmentUploadBusy = false;
   let lightboxTrigger = null;
+  let dashboardScrollY = 0;
+  let workspaceTrigger = null;
 
   function readToken() {
     try { return localStorage.getItem(TOKEN_KEY) || sessionStorage.getItem(TOKEN_KEY) || ""; }
@@ -160,7 +162,7 @@
         });
       }
       await refreshDashboard();
-      openDrawer(dashboard.trades.find((row) => row.tradeId === trade.tradeId));
+      openTradeWorkspace(dashboard.trades.find((row) => row.tradeId === trade.tradeId), { historyMode: "none", scrollTop: $("tradeWorkspace").scrollTop });
       notify(`${files.length} 张复盘图已保存到云端`);
     } catch (error) {
       document.querySelectorAll("#attachmentInput, #pasteAttachment").forEach((control) => { control.disabled = false; });
@@ -192,6 +194,10 @@
   }
 
   function setAuthVisible(visible, message = "") {
+    if (visible) {
+      document.body.classList.remove("drawer-open");
+      if (!$("tradeWorkspace").hidden) hideTradeWorkspace({ restoreFocus: false, restoreScroll: false });
+    }
     $("authScreen").hidden = !visible;
     $("app").hidden = visible;
     $("authError").hidden = !message;
@@ -339,8 +345,8 @@
     [...trades].reverse().forEach((trade) => {
       const row = document.createElement("tr"); row.tabIndex = 0;
       row.innerHTML = `<td>${esc(trade.tradeId)}</td><td>${esc(trade.dateLabel)}</td><td>${esc(trade.instrument)} / ${esc(trade.contract)}</td><td><span class="direction-pill ${trade.direction === "多" ? "long" : "short"}">${esc(trade.direction)}</span></td><td>${esc(trade.entryTime)} → ${esc(trade.exitTime)}</td><td>${esc(trade.holdingLabel)}</td><td>${trade.entryQty}</td><td class="${signedClass(trade.grossPnl)}">${money(trade.grossPnl)}</td><td>${money(trade.fees)}</td><td class="${signedClass(trade.netPnl)}">${money(trade.netPnl)}</td><td>${esc(trade.result)}</td><td><span class="evidence-count ${(trade.attachments || []).length ? "has-evidence" : ""}">${(trade.attachments || []).length || "—"}</span></td>`;
-      row.addEventListener("click", () => openDrawer(trade));
-      row.addEventListener("keydown", (event) => { if (event.key === "Enter") openDrawer(trade); });
+      row.addEventListener("click", () => { workspaceTrigger = row; openTradeWorkspace(trade); });
+      row.addEventListener("keydown", (event) => { if (event.key === "Enter") { workspaceTrigger = row; openTradeWorkspace(trade); } });
       body.append(row);
     });
   }
@@ -380,19 +386,64 @@
     });
   }
 
-  function openDrawer(trade) {
+  function tradeRouteId() {
+    const match = location.hash.match(/^#trade=(TR-\d+)$/);
+    return match ? match[1] : "";
+  }
+
+  function setTradeRoute(tradeId, mode = "push") {
+    const target = `${location.pathname}${location.search}${tradeId ? `#trade=${tradeId}` : ""}`;
+    const fromDashboard = tradeId ? mode === "push" || Boolean(history.state?.fromDashboard) : false;
+    history[`${mode}State`]({ tradeDetail: tradeId || null, fromDashboard }, "", target);
+  }
+
+  function hideTradeWorkspace({ restoreFocus = true, restoreScroll = true } = {}) {
+    if ($("tradeWorkspace").hidden) return;
+    closeImageLightbox();
+    $("tradeWorkspace").hidden = true;
+    document.body.classList.remove("workspace-open");
+    $("app").inert = false;
+    $("app").removeAttribute("aria-hidden");
+    activeTradeId = null;
+    clearAttachmentUrls();
+    if (restoreScroll) requestAnimationFrame(() => window.scrollTo({ top: dashboardScrollY, behavior: "auto" }));
+    if (restoreFocus && workspaceTrigger?.isConnected) workspaceTrigger.focus();
+    workspaceTrigger = null;
+  }
+
+  function requestCloseTradeWorkspace() {
+    if (history.state?.tradeDetail && history.state?.fromDashboard) history.back();
+    else {
+      setTradeRoute("", "replace");
+      hideTradeWorkspace();
+    }
+  }
+
+  function openTradeWorkspace(trade, { historyMode = "push", scrollTop = 0 } = {}) {
+    if (!trade) return;
+    const workspace = $("tradeWorkspace");
+    const wasHidden = workspace.hidden;
+    if (wasHidden) dashboardScrollY = window.scrollY;
+    document.body.classList.remove("drawer-open");
     clearAttachmentUrls();
     activeTradeId = trade.tradeId;
+    if (historyMode !== "none") setTradeRoute(trade.tradeId, historyMode);
     const attachments = trade.attachments || [];
-    const evidenceCards = attachments.map((attachment) => `<article class="evidence-card" data-attachment-id="${esc(attachment.id)}">
+    const evidenceCards = attachments.map((attachment, index) => `<article class="evidence-card ${index === 0 ? "featured" : ""}" data-attachment-id="${esc(attachment.id)}">
       <button class="evidence-preview" type="button" aria-label="查看 ${esc(attachment.fileName)}"><span>正在读取图表…</span></button>
       <div class="evidence-meta"><div><b>${esc(attachment.fileName)}</b><small>${formatBytes(attachment.byteSize)}</small></div><button class="evidence-delete" type="button" data-delete-attachment="${esc(attachment.id)}">删除</button></div>
     </article>`).join("");
-    $("drawerContent").innerHTML = `<div class="drawer-sub">${esc(trade.tradeId)} · ${esc(trade.dateLabel)} · ${esc(trade.session)}</div>
-      <h2>${esc(trade.instrument)} ${esc(trade.contract)} · ${esc(trade.direction)}单</h2>
-      <div class="detail-hero"><div><span>净盈亏</span><b class="${signedClass(trade.netPnl)}">¥${money(trade.netPnl)}</b></div><div><span>盈亏点数</span><b>${num(trade.points)} 点</b></div></div>
-      <dl class="detail-list"><dt>开仓</dt><dd>${esc(trade.entryTime)} · ${trade.entryQty}手 · 加权价 ${num(trade.entryPrice)}</dd><dt>平仓</dt><dd>${esc(trade.exitTime)} · ${trade.exitQty}手 · 加权价 ${num(trade.exitPrice)}</dd><dt>持仓时长</dt><dd>${esc(trade.holdingLabel)}</dd><dt>毛盈亏</dt><dd>¥${money(trade.grossPnl)}</dd><dt>手续费</dt><dd>¥${money(trade.fees)}</dd></dl>
-      <section class="evidence-section"><div class="evidence-heading"><div><small>CHART EVIDENCE</small><h3>图表证据</h3></div><span>${attachments.length} / 5 张</span></div>
+    const tradeIndex = (dashboard?.trades || []).findIndex((row) => row.tradeId === trade.tradeId);
+    const previous = tradeIndex > 0 ? dashboard.trades[tradeIndex - 1] : null;
+    const next = tradeIndex >= 0 && tradeIndex < dashboard.trades.length - 1 ? dashboard.trades[tradeIndex + 1] : null;
+    $("workspaceKicker").textContent = `${trade.tradeId} · ${trade.dateLabel} · ${trade.session}`;
+    $("workspaceTitle").textContent = `${trade.instrument} ${trade.contract} · ${trade.direction}单`;
+    $("previousTrade").disabled = !previous;
+    $("nextTrade").disabled = !next;
+    $("workspaceSave").disabled = false;
+    $("workspaceSave").textContent = "保存复盘";
+    $("tradeWorkspaceContent").innerHTML = `<div class="workspace-primary-grid">
+      <section class="workspace-panel workspace-evidence"><div class="evidence-heading"><div><small>CHART EVIDENCE</small><h2>图表证据</h2></div><span>${attachments.length} / 5 张</span></div>
         <p class="edit-hint">保存标有入场、止盈、止损和交易想法的 K 线截图。打开本交易后，随时可按 <kbd>Ctrl</kbd> + <kbd>V</kbd> 粘贴。</p>
         <div class="evidence-grid">${evidenceCards || `<div class="evidence-empty">这笔交易还没有复盘图</div>`}</div>
         <div class="evidence-actions">
@@ -401,7 +452,10 @@
         </div>
         <div class="upload-state" id="uploadState"></div>
       </section>
-      <section class="edit-section"><h3>补充复盘信息</h3><p class="edit-hint">保存后立即写入云端数据库，并同步到所有设备。</p>
+      <aside class="workspace-panel workspace-summary"><div class="summary-label">TRADE SNAPSHOT</div><div class="workspace-result"><span>净盈亏</span><b class="${signedClass(trade.netPnl)}">¥${money(trade.netPnl)}</b><small>${esc(trade.result)} · ${num(trade.points)} 点</small></div>
+        <dl class="workspace-facts"><div><dt>开仓</dt><dd>${esc(trade.entryTime)} · ${trade.entryQty}手</dd><small>加权价 ${num(trade.entryPrice)}</small></div><div><dt>平仓</dt><dd>${esc(trade.exitTime)} · ${trade.exitQty}手</dd><small>加权价 ${num(trade.exitPrice)}</small></div><div><dt>持仓时长</dt><dd>${esc(trade.holdingLabel)}</dd></div><div><dt>毛盈亏</dt><dd class="${signedClass(trade.grossPnl)}">¥${money(trade.grossPnl)}</dd></div><div><dt>手续费</dt><dd>¥${money(trade.fees)}</dd></div><div><dt>计划风险</dt><dd>${trade.plannedRisk != null ? `¥${money(trade.plannedRisk)}` : "待补充"}</dd></div><div><dt>实际风险</dt><dd>${trade.actualRisk != null ? `¥${money(trade.actualRisk)}` : "待补充"}</dd></div><div><dt>实际 R</dt><dd class="${signedClass(trade.rMultiple)}">${trade.rMultiple != null ? `${num(trade.rMultiple)} R` : "待计算"}</dd></div></dl>
+      </aside></div>
+      <section class="workspace-panel workspace-review"><div class="review-heading"><div><span>REVIEW NOTES</span><h2>完整复盘</h2></div><p>填写后点击页面顶部“保存复盘”，立即同步到所有设备。</p></div>
       <form id="annotationForm"><div class="edit-grid">
         <label class="edit-field"><span>交易日期</span><input name="date" type="date" value="${esc(trade.date || "")}"></label>
         <label class="edit-field"><span>执行评分（1–5）</span><select name="executionScore">${optionList(["1", "2", "3", "4", "5"], trade.executionScore)}</select></label>
@@ -414,10 +468,17 @@
         <label class="edit-field full"><span>入场理由</span><textarea name="entryReason">${esc(trade.entryReason || "")}</textarea></label>
         <label class="edit-field full"><span>出场理由</span><textarea name="exitReason">${esc(trade.exitReason || "")}</textarea></label>
         <label class="edit-field full"><span>复盘备注</span><textarea name="reviewNotes">${esc(trade.reviewNotes || "")}</textarea></label>
-      </div><div class="edit-actions"><button class="primary-button" id="saveAnnotation" type="submit">保存到云端</button><button class="ghost-button clear-button" id="clearAnnotation" type="button">清除文字补充</button><span class="save-state" id="saveState">云端持久化</span></div></form></section>
-      <section class="delete-trade-section"><div><h3>不计入统计</h3><p>将整笔交易移入回收站。复盘文字和图片都会保留，之后可以恢复。</p></div><button class="ghost-button delete-trade-button" id="deleteTrade" type="button">移入回收站</button></section>`;
-    document.body.classList.add("drawer-open");
+      </div><div class="edit-actions"><button class="ghost-button clear-button" id="clearAnnotation" type="button">清除文字补充</button><span class="save-state" id="saveState">云端持久化</span></div></form>
+      <section class="delete-trade-section"><div><h3>不计入统计</h3><p>将整笔交易移入回收站。复盘文字和图片都会保留，之后可以恢复。</p></div><button class="ghost-button delete-trade-button" id="deleteTrade" type="button">移入回收站</button></section></section>`;
+    workspace.hidden = false;
+    document.body.classList.add("workspace-open");
+    $("app").inert = true;
+    $("app").setAttribute("aria-hidden", "true");
+    workspace.scrollTop = scrollTop;
+    if (wasHidden) $("workspaceBack").focus();
     loadAttachmentPreviews(trade);
+    $("previousTrade").onclick = () => previous && openTradeWorkspace(previous, { historyMode: "replace" });
+    $("nextTrade").onclick = () => next && openTradeWorkspace(next, { historyMode: "replace" });
     $("attachmentInput")?.addEventListener("change", (event) => uploadAttachmentFiles(event.currentTarget.files, trade));
     $("pasteAttachment")?.addEventListener("click", async () => {
       try { await uploadAttachmentFiles(await readClipboardImages(), trade); }
@@ -434,28 +495,28 @@
         try {
           await apiFetch(`/api/attachments/${encodeURIComponent(button.dataset.deleteAttachment)}`, { method: "DELETE" });
           await refreshDashboard();
-          openDrawer(dashboard.trades.find((row) => row.tradeId === trade.tradeId));
+          openTradeWorkspace(dashboard.trades.find((row) => row.tradeId === trade.tradeId), { historyMode: "none", scrollTop: workspace.scrollTop });
           notify("复盘图已删除");
         } catch (error) { button.disabled = false; notify(error.message, true); }
       });
     });
     $("annotationForm").addEventListener("submit", async (event) => {
       event.preventDefault();
-      const button = $("saveAnnotation"); button.disabled = true; $("saveState").textContent = "正在同步…";
+      const button = $("workspaceSave"); button.disabled = true; button.textContent = "正在保存…"; $("saveState").textContent = "正在同步…";
       try {
         const payload = Object.fromEntries(new FormData(event.currentTarget).entries());
         await apiFetch(`/api/trades/${encodeURIComponent(trade.tradeId)}`, { method: "PUT", body: JSON.stringify(payload) });
         await refreshDashboard();
         const next = dashboard.trades.find((row) => row.tradeId === trade.tradeId);
-        openDrawer(next); notify(`${trade.tradeId} 已保存到云端`);
-      } catch (error) { button.disabled = false; $("saveState").textContent = "同步失败"; notify(error.message, true); }
+        openTradeWorkspace(next, { historyMode: "none", scrollTop: workspace.scrollTop }); notify(`${trade.tradeId} 已保存到云端`);
+      } catch (error) { button.disabled = false; button.textContent = "保存复盘"; $("saveState").textContent = "同步失败"; notify(error.message, true); }
     });
     let clearArmed = false;
     $("clearAnnotation").addEventListener("click", async (event) => {
       if (!clearArmed) { clearArmed = true; event.currentTarget.textContent = "再次点击确认清除"; $("saveState").textContent = "此操作会清除全部手动补充"; return; }
       try {
         await apiFetch(`/api/trades/${encodeURIComponent(trade.tradeId)}`, { method: "DELETE" });
-        await refreshDashboard(); openDrawer(dashboard.trades.find((row) => row.tradeId === trade.tradeId)); notify(`${trade.tradeId} 的补充信息已清除`);
+        await refreshDashboard(); openTradeWorkspace(dashboard.trades.find((row) => row.tradeId === trade.tradeId), { historyMode: "none", scrollTop: workspace.scrollTop }); notify(`${trade.tradeId} 的补充信息已清除`);
       } catch (error) { notify(error.message, true); }
     });
     let deleteArmed = false;
@@ -471,13 +532,15 @@
       try {
         await apiFetch(`/api/trades/${encodeURIComponent(trade.tradeId)}/record`, { method: "DELETE" });
         await refreshDashboard();
+        setTradeRoute("", "replace");
+        hideTradeWorkspace({ restoreFocus: false });
         openTrashDrawer();
         notify(`${trade.tradeId} 已移入回收站，统计已更新`);
       } catch (error) { event.currentTarget.disabled = false; event.currentTarget.textContent = "移入回收站"; event.currentTarget.classList.remove("armed"); deleteArmed = false; notify(error.message, true); }
     });
   }
 
-  function closeDrawer() { closeImageLightbox(); document.body.classList.remove("drawer-open"); activeTradeId = null; clearAttachmentUrls(); }
+  function closeDrawer() { document.body.classList.remove("drawer-open"); }
 
   async function refreshDashboard() {
     dashboard = await apiFetch("/api/dashboard");
@@ -508,6 +571,8 @@
         const option = document.createElement("option"); option.value = option.textContent = value; selects.instrument.append(option);
       });
       render();
+      const routedTrade = dashboard.trades.find((trade) => trade.tradeId === tradeRouteId());
+      if (routedTrade) openTradeWorkspace(routedTrade, { historyMode: "none" });
       setInterval(() => { renewSession().catch(() => {}); }, RENEW_INTERVAL_MS);
     } catch (error) {
       if (token) { setAuthVisible(true, error.message); }
@@ -522,15 +587,17 @@
   $("resetFilters").addEventListener("click", () => { Object.values(selects).forEach((select) => { select.value = ""; }); render(); });
   $("drawerClose").addEventListener("click", closeDrawer);
   $("drawerMask").addEventListener("click", closeDrawer);
+  $("workspaceBack").addEventListener("click", requestCloseTradeWorkspace);
   $("imageLightboxClose").addEventListener("click", closeImageLightbox);
   $("imageLightbox").addEventListener("click", (event) => { if (event.target === event.currentTarget) closeImageLightbox(); });
   document.addEventListener("keydown", (event) => {
     if (event.key !== "Escape") return;
     if (!$("imageLightbox").hidden) closeImageLightbox();
+    else if (!$("tradeWorkspace").hidden) requestCloseTradeWorkspace();
     else closeDrawer();
   });
   document.addEventListener("paste", (event) => {
-    if (!activeTradeId || !document.body.classList.contains("drawer-open")) return;
+    if (!activeTradeId || !document.body.classList.contains("workspace-open")) return;
     const files = clipboardEventImages(event.clipboardData);
     if (!files.length) return;
     event.preventDefault();
@@ -541,6 +608,11 @@
     if (event.key !== TOKEN_KEY) return;
     token = event.newValue || "";
     if (!token) setAuthVisible(true);
+  });
+  window.addEventListener("popstate", () => {
+    const trade = dashboard?.trades?.find((row) => row.tradeId === tradeRouteId());
+    if (trade) openTradeWorkspace(trade, { historyMode: "none" });
+    else hideTradeWorkspace();
   });
   start();
 })();

@@ -7,8 +7,8 @@
   <meta name="description" content="私人期货日内交易复盘台">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src https://trade-review-api.dengrunting.workers.dev; img-src 'self' blob: data: https://avatars.githubusercontent.com https://trade-review-api.dengrunting.workers.dev; style-src 'self'; script-src 'self'; base-uri 'none'; form-action 'none'">
   <title>日内交易复盘台</title>
-  <link rel="stylesheet" href="./styles.css?v=20260720-4">
-  <link rel="stylesheet" href="./readability.css?v=20260720-4">
+  <link rel="stylesheet" href="./styles.css?v=20260720-5">
+  <link rel="stylesheet" href="./readability.css?v=20260720-5">
 </head>
 <body>
   <div class="grain" aria-hidden="true"></div>
@@ -88,7 +88,7 @@
       </section>
 
       <section class="panel ledger-panel">
-        <div class="panel-head"><div><small>TRADE LEDGER</small><h2>完整交易明细</h2></div><span>点击记录补充复盘</span></div>
+        <div class="panel-head"><div><small>TRADE LEDGER</small><h2>完整交易明细</h2></div><span>点击记录进入完整复盘</span></div>
         <div class="table-wrap">
           <table><thead><tr><th>编号</th><th>日期</th><th>品种 / 合约</th><th>方向</th><th>开仓 → 平仓</th><th>持仓</th><th>手数</th><th>毛盈亏</th><th>手续费</th><th>净盈亏</th><th>结果</th><th>复盘图</th></tr></thead><tbody id="tradeRows"></tbody></table>
           <div class="empty" id="emptyState" hidden>当前筛选条件下没有交易。</div>
@@ -98,6 +98,19 @@
       <footer><span id="footerMeta"></span><span>交易数据受 GitHub 身份验证保护 · Cloudflare D1 持久化</span></footer>
     </main>
   </div>
+
+  <section class="trade-workspace" id="tradeWorkspace" role="dialog" aria-modal="true" aria-labelledby="workspaceTitle" hidden>
+    <header class="workspace-toolbar">
+      <button class="workspace-back" id="workspaceBack" type="button">← 返回总览</button>
+      <div class="workspace-identity"><span id="workspaceKicker"></span><h1 id="workspaceTitle">交易复盘</h1></div>
+      <div class="workspace-toolbar-actions">
+        <button class="workspace-nav" id="previousTrade" type="button">← 上一笔</button>
+        <button class="workspace-nav" id="nextTrade" type="button">下一笔 →</button>
+        <button class="primary-button workspace-save" id="workspaceSave" type="submit" form="annotationForm">保存复盘</button>
+      </div>
+    </header>
+    <div class="workspace-content" id="tradeWorkspaceContent"></div>
+  </section>
 
   <div class="drawer-mask" id="drawerMask"></div>
   <aside class="drawer" id="drawer"><button class="drawer-close" id="drawerClose" aria-label="关闭">×</button><div id="drawerContent"></div></aside>
@@ -112,6 +125,6 @@
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
   <script src="./config.js"></script>
-  <script src="./app.js?v=20260720-4"></script>
+  <script src="./app.js?v=20260720-5"></script>
 </body>
 </html>
