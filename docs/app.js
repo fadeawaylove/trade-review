@@ -10,6 +10,8 @@
   let token = readToken();
   let toastTimer = null;
   let attachmentObjectUrls = [];
+  let activeTradeId = null;
+  let attachmentUploadBusy = false;
 
   function readToken() {
     try { return localStorage.getItem(TOKEN_KEY) || sessionStorage.getItem(TOKEN_KEY) || ""; }
@@ -97,6 +99,66 @@
         host.addEventListener("click", () => window.open(url, "_blank", "noopener"));
       } catch (error) { host.textContent = error.message; host.classList.add("failed"); }
     }
+  }
+
+  function clipboardFileName(mimeType, index = 0) {
+    const extension = { "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp" }[mimeType] || "png";
+    const stamp = new Date().toLocaleString("sv-SE", { hour12: false }).replace(/[\s:]/g, "-");
+    return `剪贴板-${stamp}${index ? `-${index + 1}` : ""}.${extension}`;
+  }
+
+  function clipboardEventImages(clipboardData) {
+    return [...(clipboardData?.items || [])]
+      .filter((item) => item.kind === "file" && item.type.startsWith("image/"))
+      .map((item, index) => {
+        const blob = item.getAsFile();
+        return blob ? new File([blob], blob.name || clipboardFileName(blob.type, index), { type: blob.type }) : null;
+      })
+      .filter(Boolean);
+  }
+
+  async function uploadAttachmentFiles(inputFiles, trade) {
+    const files = [...inputFiles].filter((file) => file.type.startsWith("image/"));
+    if (!files.length) { notify("剪贴板中没有可用的图片", true); return; }
+    if (attachmentUploadBusy) { notify("上一批图片仍在处理中"); return; }
+    const currentTrade = dashboard?.trades?.find((row) => row.tradeId === trade.tradeId) || trade;
+    const existingCount = (currentTrade.attachments || []).length;
+    if (existingCount + files.length > 5) { notify(`这笔交易还可以添加 ${Math.max(0, 5 - existingCount)} 张复盘图`, true); return; }
+
+    attachmentUploadBusy = true;
+    document.querySelectorAll("#attachmentInput, #pasteAttachment").forEach((control) => { control.disabled = true; });
+    $("uploadState").textContent = `正在处理 1 / ${files.length}…`;
+    try {
+      for (let index = 0; index < files.length; index += 1) {
+        $("uploadState").textContent = `正在处理 ${index + 1} / ${files.length}…`;
+        const prepared = await prepareAttachment(files[index]);
+        await apiFetch(`/api/trades/${encodeURIComponent(trade.tradeId)}/attachments`, {
+          method: "POST",
+          body: prepared.blob,
+          headers: { "Content-Type": prepared.blob.type, "X-File-Name": encodeURIComponent(prepared.fileName || clipboardFileName(prepared.blob.type, index)) },
+        });
+      }
+      await refreshDashboard();
+      openDrawer(dashboard.trades.find((row) => row.tradeId === trade.tradeId));
+      notify(`${files.length} 张复盘图已保存到云端`);
+    } catch (error) {
+      document.querySelectorAll("#attachmentInput, #pasteAttachment").forEach((control) => { control.disabled = false; });
+      $("uploadState").textContent = "上传失败";
+      notify(error.message, true);
+    } finally { attachmentUploadBusy = false; }
+  }
+
+  async function readClipboardImages() {
+    if (!navigator.clipboard?.read) throw new Error("当前浏览器不支持按钮读取，请直接按 Ctrl+V 粘贴");
+    const items = await navigator.clipboard.read();
+    const files = [];
+    for (const item of items) {
+      const mimeType = item.types.find((type) => type.startsWith("image/"));
+      if (!mimeType) continue;
+      const blob = await item.getType(mimeType);
+      files.push(new File([blob], clipboardFileName(mimeType, files.length), { type: mimeType }));
+    }
+    return files;
   }
 
   function notify(message, error = false) {
@@ -274,6 +336,7 @@
 
   function openDrawer(trade) {
     clearAttachmentUrls();
+    activeTradeId = trade.tradeId;
     const attachments = trade.attachments || [];
     const evidenceCards = attachments.map((attachment) => `<article class="evidence-card" data-attachment-id="${esc(attachment.id)}">
       <button class="evidence-preview" type="button" aria-label="查看 ${esc(attachment.fileName)}"><span>正在读取图表…</span></button>
@@ -284,9 +347,12 @@
       <div class="detail-hero"><div><span>净盈亏</span><b class="${signedClass(trade.netPnl)}">¥${money(trade.netPnl)}</b></div><div><span>盈亏点数</span><b>${num(trade.points)} 点</b></div></div>
       <dl class="detail-list"><dt>开仓</dt><dd>${esc(trade.entryTime)} · ${trade.entryQty}手 · 加权价 ${num(trade.entryPrice)}</dd><dt>平仓</dt><dd>${esc(trade.exitTime)} · ${trade.exitQty}手 · 加权价 ${num(trade.exitPrice)}</dd><dt>持仓时长</dt><dd>${esc(trade.holdingLabel)}</dd><dt>毛盈亏</dt><dd>¥${money(trade.grossPnl)}</dd><dt>手续费</dt><dd>¥${money(trade.fees)}</dd></dl>
       <section class="evidence-section"><div class="evidence-heading"><div><small>CHART EVIDENCE</small><h3>图表证据</h3></div><span>${attachments.length} / 5 张</span></div>
-        <p class="edit-hint">保存标有入场、止盈、止损和交易想法的 K 线截图，之后可按交易回看。</p>
+        <p class="edit-hint">保存标有入场、止盈、止损和交易想法的 K 线截图。打开本交易后，随时可按 <kbd>Ctrl</kbd> + <kbd>V</kbd> 粘贴。</p>
         <div class="evidence-grid">${evidenceCards || `<div class="evidence-empty">这笔交易还没有复盘图</div>`}</div>
-        <label class="evidence-upload ${attachments.length >= 5 ? "disabled" : ""}"><span>＋ 添加复盘图</span><small>支持多选，过大的图片会自动压缩</small><input id="attachmentInput" type="file" accept="image/png,image/jpeg,image/webp" multiple ${attachments.length >= 5 ? "disabled" : ""}></label>
+        <div class="evidence-actions">
+          <label class="evidence-upload ${attachments.length >= 5 ? "disabled" : ""}"><span>＋ 选择图片</span><small>支持多选</small><input id="attachmentInput" type="file" accept="image/png,image/jpeg,image/webp" multiple ${attachments.length >= 5 ? "disabled" : ""}></label>
+          <button class="evidence-paste" id="pasteAttachment" type="button" ${attachments.length >= 5 ? "disabled" : ""}><span>粘贴剪贴板图片</span><small>也可直接按 Ctrl+V</small></button>
+        </div>
         <div class="upload-state" id="uploadState"></div>
       </section>
       <section class="edit-section"><h3>补充复盘信息</h3><p class="edit-hint">保存后立即写入云端数据库，并同步到所有设备。</p>
@@ -305,26 +371,13 @@
       </div><div class="edit-actions"><button class="primary-button" id="saveAnnotation" type="submit">保存到云端</button><button class="ghost-button clear-button" id="clearAnnotation" type="button">清除文字补充</button><span class="save-state" id="saveState">云端持久化</span></div></form></section>`;
     document.body.classList.add("drawer-open");
     loadAttachmentPreviews(trade);
-    $("attachmentInput")?.addEventListener("change", async (event) => {
-      const files = [...event.currentTarget.files];
-      if (!files.length) return;
-      if (attachments.length + files.length > 5) { notify("每笔交易最多保存 5 张复盘图", true); event.currentTarget.value = ""; return; }
-      event.currentTarget.disabled = true;
-      $("uploadState").textContent = `正在处理 1 / ${files.length}…`;
-      try {
-        for (let index = 0; index < files.length; index += 1) {
-          $("uploadState").textContent = `正在处理 ${index + 1} / ${files.length}…`;
-          const prepared = await prepareAttachment(files[index]);
-          await apiFetch(`/api/trades/${encodeURIComponent(trade.tradeId)}/attachments`, {
-            method: "POST",
-            body: prepared.blob,
-            headers: { "Content-Type": prepared.blob.type, "X-File-Name": encodeURIComponent(prepared.fileName) },
-          });
-        }
-        await refreshDashboard();
-        openDrawer(dashboard.trades.find((row) => row.tradeId === trade.tradeId));
-        notify(`${files.length} 张复盘图已保存到云端`);
-      } catch (error) { event.currentTarget.disabled = false; $("uploadState").textContent = "上传失败"; notify(error.message, true); }
+    $("attachmentInput")?.addEventListener("change", (event) => uploadAttachmentFiles(event.currentTarget.files, trade));
+    $("pasteAttachment")?.addEventListener("click", async () => {
+      try { await uploadAttachmentFiles(await readClipboardImages(), trade); }
+      catch (error) {
+        const message = String(error?.message || "");
+        notify(message.startsWith("当前浏览器") ? message : "浏览器未允许读取剪贴板，请直接按 Ctrl+V 粘贴", true);
+      }
     });
     document.querySelectorAll("[data-delete-attachment]").forEach((button) => {
       let armed = false;
@@ -360,7 +413,7 @@
     });
   }
 
-  function closeDrawer() { document.body.classList.remove("drawer-open"); clearAttachmentUrls(); }
+  function closeDrawer() { document.body.classList.remove("drawer-open"); activeTradeId = null; clearAttachmentUrls(); }
 
   async function refreshDashboard() {
     dashboard = await apiFetch("/api/dashboard");
@@ -405,6 +458,14 @@
   $("drawerClose").addEventListener("click", closeDrawer);
   $("drawerMask").addEventListener("click", closeDrawer);
   document.addEventListener("keydown", (event) => { if (event.key === "Escape") closeDrawer(); });
+  document.addEventListener("paste", (event) => {
+    if (!activeTradeId || !document.body.classList.contains("drawer-open")) return;
+    const files = clipboardEventImages(event.clipboardData);
+    if (!files.length) return;
+    event.preventDefault();
+    const trade = dashboard?.trades?.find((row) => row.tradeId === activeTradeId);
+    if (trade) uploadAttachmentFiles(files, trade);
+  });
   window.addEventListener("storage", (event) => {
     if (event.key !== TOKEN_KEY) return;
     token = event.newValue || "";
