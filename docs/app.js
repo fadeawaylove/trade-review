@@ -1,4 +1,5 @@
 import { buildEquityChartModel, tooltipPlacement } from "./equity-chart.js?v=20260721-1";
+import { buildEvidenceCarouselState } from "./evidence-carousel.js?v=20260721-1";
 
 (() => {
   const CONFIG = window.TRADE_CONFIG || {};
@@ -20,6 +21,8 @@ import { buildEquityChartModel, tooltipPlacement } from "./equity-chart.js?v=202
   let lightboxZoom = 1;
   let dashboardScrollY = 0;
   let workspaceTrigger = null;
+  let evidenceCarouselIndex = 0;
+  let evidenceCarouselTradeId = "";
 
   function readToken() {
     try { return localStorage.getItem(TOKEN_KEY) || sessionStorage.getItem(TOKEN_KEY) || ""; }
@@ -541,7 +544,13 @@ import { buildEquityChartModel, tooltipPlacement } from "./equity-chart.js?v=202
     activeTradeId = trade.tradeId;
     if (historyMode !== "none") setTradeRoute(trade.tradeId, historyMode);
     const attachments = trade.attachments || [];
-    const evidenceCards = attachments.map((attachment, index) => `<article class="evidence-card ${index === 0 ? "featured" : ""}" data-attachment-id="${esc(attachment.id)}">
+    if (evidenceCarouselTradeId !== trade.tradeId) {
+      evidenceCarouselTradeId = trade.tradeId;
+      evidenceCarouselIndex = 0;
+    }
+    const initialEvidenceState = buildEvidenceCarouselState(attachments, evidenceCarouselIndex);
+    evidenceCarouselIndex = initialEvidenceState.activeIndex;
+    const evidenceCards = attachments.map((attachment, index) => `<article class="evidence-card carousel-slide" data-attachment-id="${esc(attachment.id)}" data-evidence-index="${index}" ${index === initialEvidenceState.activeIndex ? "" : "hidden"}>
       <button class="evidence-preview" type="button" aria-label="查看 ${esc(attachment.fileName)}"><span>正在读取图表…</span></button>
       <div class="evidence-meta"><div><b>${esc(attachment.fileName)}</b><small>${formatBytes(attachment.byteSize)}</small></div><button class="evidence-delete" type="button" data-delete-attachment="${esc(attachment.id)}">删除</button></div>
     </article>`).join("");
@@ -555,9 +564,11 @@ import { buildEquityChartModel, tooltipPlacement } from "./equity-chart.js?v=202
     $("workspaceSave").disabled = false;
     $("workspaceSave").textContent = "保存复盘";
     $("tradeWorkspaceContent").innerHTML = `<div class="workspace-primary-grid">
-      <section class="workspace-panel workspace-evidence"><div class="evidence-heading"><div><small>CHART EVIDENCE</small><h2>图表证据</h2></div><span>${attachments.length} / 5 张</span></div>
+      <section class="workspace-panel workspace-evidence"><div class="evidence-heading"><div><small>CHART EVIDENCE</small><h2>图表证据</h2></div><div class="evidence-position">${initialEvidenceState.canNavigate ? `<button id="previousEvidence" type="button">上一张</button>` : ""}<span id="evidencePosition">${initialEvidenceState.positionLabel}</span>${initialEvidenceState.canNavigate ? `<button id="nextEvidence" type="button">下一张</button>` : ""}</div></div>
         <p class="edit-hint">保存标有入场、止盈、止损和交易想法的 K 线截图。打开本交易后，随时可按 <kbd>Ctrl</kbd> + <kbd>V</kbd> 粘贴。</p>
-        <div class="evidence-grid">${evidenceCards || `<div class="evidence-empty">这笔交易还没有复盘图</div>`}</div>
+        <div class="evidence-carousel" id="evidenceCarousel" tabindex="${attachments.length ? "0" : "-1"}" role="region" aria-label="复盘图片轮播">
+          <div class="evidence-grid">${evidenceCards || `<div class="evidence-empty">这笔交易还没有复盘图</div>`}</div>
+        </div>
         <div class="evidence-actions">
           <label class="evidence-upload ${attachments.length >= 5 ? "disabled" : ""}"><span>＋ 选择图片</span><small>支持多选</small><input id="attachmentInput" type="file" accept="image/png,image/jpeg,image/webp" multiple ${attachments.length >= 5 ? "disabled" : ""}></label>
           <button class="evidence-paste" id="pasteAttachment" type="button" ${attachments.length >= 5 ? "disabled" : ""}><span>粘贴剪贴板图片</span><small>也可直接按 Ctrl+V</small></button>
@@ -592,6 +603,30 @@ import { buildEquityChartModel, tooltipPlacement } from "./equity-chart.js?v=202
     document.querySelector(".workspace-evidence").scrollTop = nextEvidenceScroll;
     document.querySelector(".workspace-review-rail").scrollTop = nextReviewScroll;
     if (wasHidden) $("workspaceBack").focus();
+    const showEvidence = (requestedIndex) => {
+      const state = buildEvidenceCarouselState(attachments, requestedIndex);
+      evidenceCarouselIndex = state.activeIndex;
+      document.querySelectorAll("[data-evidence-index]").forEach((card) => {
+        const active = Number(card.dataset.evidenceIndex) === state.activeIndex;
+        card.hidden = !active;
+        card.setAttribute("aria-hidden", String(!active));
+      });
+      $("evidencePosition").textContent = state.positionLabel;
+      $("evidenceCarousel").setAttribute("aria-label", state.activeId ? `复盘图片轮播，当前 ${state.positionLabel}` : "复盘图片轮播，暂无图片");
+      return state;
+    };
+    const moveEvidence = (direction) => {
+      const current = buildEvidenceCarouselState(attachments, evidenceCarouselIndex);
+      showEvidence(direction < 0 ? current.previousIndex : current.nextIndex);
+    };
+    showEvidence(evidenceCarouselIndex);
+    $("previousEvidence")?.addEventListener("click", () => moveEvidence(-1));
+    $("nextEvidence")?.addEventListener("click", () => moveEvidence(1));
+    $("evidenceCarousel").addEventListener("keydown", (event) => {
+      if (event.target !== event.currentTarget || !["ArrowLeft", "ArrowRight"].includes(event.key)) return;
+      event.preventDefault();
+      moveEvidence(event.key === "ArrowLeft" ? -1 : 1);
+    });
     loadAttachmentPreviews(trade);
     $("previousTrade").onclick = () => previous && openTradeWorkspace(previous, { historyMode: "replace" });
     $("nextTrade").onclick = () => next && openTradeWorkspace(next, { historyMode: "replace" });

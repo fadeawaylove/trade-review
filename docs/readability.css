@@ -105,6 +105,14 @@ footer{font-size:12px;line-height:1.7}
 }
 
 /* Trade detail: keep chart evidence and review context visible together. */
+.workspace-evidence .evidence-grid{display:block}
+.workspace-evidence .carousel-slide{width:100%}
+.workspace-evidence .carousel-slide[hidden]{display:none!important}
+.evidence-carousel{outline:none}
+.evidence-carousel:focus-visible{border-radius:10px;box-shadow:0 0 0 3px rgba(185,129,41,.24)}
+.evidence-position{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:13px;white-space:nowrap}
+.evidence-position button{padding:7px 9px;border:1px solid rgba(33,49,68,.16);border-radius:7px;color:#425364;background:rgba(255,255,255,.66);font-size:12px;font-weight:700;cursor:pointer}
+.evidence-position button:hover{border-color:rgba(201,67,56,.28);color:var(--profit);background:#fff}
 .workspace-review-rail{display:flex;min-width:0;flex-direction:column;gap:22px}
 .workspace-review-rail .workspace-review{margin-top:0}
 .image-lightbox-stage{position:fixed;inset:68px 72px 104px;display:grid;overflow:auto;place-items:center;overscroll-behavior:contain}
@@ -122,8 +130,8 @@ footer{font-size:12px;line-height:1.7}
   .workspace-content{width:min(1920px,100%);height:calc(100vh - 92px);height:calc(100dvh - 92px);padding:22px clamp(18px,2.4vw,46px);overflow:hidden}
   .workspace-primary-grid{height:100%;grid-template-columns:minmax(0,1.75fr) minmax(430px,1fr);align-items:stretch;gap:18px}
   .workspace-evidence{align-self:start;max-height:100%;min-height:0;overflow:auto;overscroll-behavior:contain;scrollbar-gutter:stable}
-  .workspace-evidence .evidence-card.featured .evidence-preview.loaded{display:block;height:auto;min-height:0}
-  .workspace-evidence .evidence-card.featured .evidence-preview.loaded img{display:block;width:100%;height:auto;max-height:none;object-fit:contain}
+  .workspace-evidence .carousel-slide .evidence-preview.loaded{display:block;height:auto;min-height:0}
+  .workspace-evidence .carousel-slide .evidence-preview.loaded img{display:block;width:100%;height:auto;max-height:none;object-fit:contain}
   .workspace-review-rail{min-height:0;gap:18px;overflow-y:auto;overscroll-behavior:contain;scrollbar-gutter:stable;padding-right:4px}
   .workspace-summary{position:relative;top:auto;flex:none}
   .workspace-summary .summary-label{padding:16px 22px 8px}
