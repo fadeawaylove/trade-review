@@ -100,9 +100,11 @@ footer{font-size:12px;line-height:1.7}
 @media(min-width:1101px){
   .trade-workspace{overflow:hidden}
   .workspace-toolbar{height:92px}
-  .workspace-content{height:calc(100vh - 92px);height:calc(100dvh - 92px);padding-top:22px;padding-bottom:22px;overflow:hidden}
-  .workspace-primary-grid{height:100%;grid-template-columns:minmax(0,1.62fr) minmax(420px,1fr);align-items:stretch}
-  .workspace-evidence{min-height:0;overflow:auto;overscroll-behavior:contain;scrollbar-gutter:stable}
+  .workspace-content{width:min(1920px,100%);height:calc(100vh - 92px);height:calc(100dvh - 92px);padding:22px clamp(18px,2.4vw,46px);overflow:hidden}
+  .workspace-primary-grid{height:100%;grid-template-columns:minmax(0,1.75fr) minmax(430px,1fr);align-items:stretch;gap:18px}
+  .workspace-evidence{align-self:start;max-height:100%;min-height:0;overflow:auto;overscroll-behavior:contain;scrollbar-gutter:stable}
+  .workspace-evidence .evidence-card.featured .evidence-preview.loaded{display:block;height:auto;min-height:0}
+  .workspace-evidence .evidence-card.featured .evidence-preview.loaded img{display:block;width:100%;height:auto;max-height:none;object-fit:contain}
   .workspace-review-rail{min-height:0;gap:18px;overflow-y:auto;overscroll-behavior:contain;scrollbar-gutter:stable;padding-right:4px}
   .workspace-summary{position:relative;top:auto;flex:none}
   .workspace-summary .summary-label{padding:16px 22px 8px}

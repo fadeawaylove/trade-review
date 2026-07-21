@@ -153,6 +153,7 @@
         image.src = url;
         image.alt = `${trade.tradeId} ${attachment.fileName}`;
         host.replaceChildren(image);
+        host.classList.add("loaded");
         host.addEventListener("click", () => openImageLightbox(url, attachment, host));
       } catch (error) { host.textContent = error.message; host.classList.add("failed"); }
     }
