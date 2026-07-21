@@ -12,7 +12,7 @@
   <link rel="apple-touch-icon" sizes="180x180" href="./apple-touch-icon.png?v=20260720-1">
   <link rel="manifest" href="./site.webmanifest">
   <link rel="stylesheet" href="./styles.css?v=20260720-5">
-  <link rel="stylesheet" href="./readability.css?v=20260721-3">
+  <link rel="stylesheet" href="./readability.css?v=20260721-4">
 </head>
 <body>
   <div class="grain" aria-hidden="true"></div>
@@ -75,7 +75,14 @@
       <section class="hero-grid">
         <article class="panel chart-panel">
           <div class="panel-head"><div><small>EQUITY PATH</small><h2>累计净盈亏</h2></div><span id="chartCaption"></span></div>
-          <svg id="equityChart" viewBox="0 0 900 280" preserveAspectRatio="none"></svg>
+          <div class="equity-chart-shell" id="equityChartShell">
+            <svg id="equityChart" viewBox="0 0 900 280" preserveAspectRatio="none" role="group" aria-label="累计净盈亏折线图"></svg>
+            <div class="equity-tooltip" id="equityTooltip" role="group" aria-live="polite" aria-label="交易节点详情" hidden>
+              <div class="equity-tooltip-head"><div><b id="equityTooltipId"></b><small id="equityTooltipDate"></small></div><span id="equityTooltipSummary"></span></div>
+              <div class="equity-tooltip-values"><div><span>单笔盈亏</span><b id="equityTooltipPnl"></b></div><div><span>累计净盈亏</span><b id="equityTooltipTotal"></b></div></div>
+              <button id="equityTooltipOpen" type="button">查看交易详情</button>
+            </div>
+          </div>
         </article>
         <article class="panel brief-panel">
           <div class="brief-index" id="briefIndex">00</div>
@@ -138,6 +145,6 @@
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
   <script src="./config.js"></script>
-  <script src="./app.js?v=20260721-3"></script>
+  <script type="module" src="./app.js?v=20260721-4"></script>
 </body>
 </html>

@@ -1,3 +1,5 @@
+import { buildEquityChartModel, tooltipPlacement } from "./equity-chart.js?v=20260721-1";
+
 (() => {
   const CONFIG = window.TRADE_CONFIG || {};
   const API = String(CONFIG.apiBase || "").replace(/\/$/, "");
@@ -324,25 +326,96 @@
 
   function renderChart(trades) {
     const svg = $("equityChart");
-    if (!trades.length) { svg.innerHTML = `<text x="450" y="140" text-anchor="middle" class="axis-label">暂无交易</text>`; return; }
-    const W = 900, H = 280, pad = { l: 55, r: 24, t: 24, b: 36 };
-    let cumulative = 0;
-    const values = trades.map((trade) => ({ id: trade.tradeId, value: (cumulative += trade.netPnl) }));
-    const min = Math.min(0, ...values.map((point) => point.value)), max = Math.max(0, ...values.map((point) => point.value));
-    const span = Math.max(1, max - min), xSpan = Math.max(1, values.length - 1);
-    const x = (index) => pad.l + index / xSpan * (W - pad.l - pad.r);
-    const y = (value) => pad.t + (max - value) / span * (H - pad.t - pad.b);
-    const points = values.map((point, index) => [x(index), y(point.value)]);
-    const line = points.map((point, index) => `${index ? "L" : "M"}${point[0].toFixed(1)},${point[1].toFixed(1)}`).join(" ");
-    const base = y(0);
-    const area = `${line} L${points.at(-1)[0]},${base} L${points[0][0]},${base} Z`;
-    const ticks = [0, .25, .5, .75, 1].map((ratio) => max - span * ratio);
+    const shell = $("equityChartShell");
+    const tooltip = $("equityTooltip");
+    const openButton = $("equityTooltipOpen");
+    const model = buildEquityChartModel(trades);
+    const { width: W, height: H, pad, values, points, hitBounds, ticks, line, area } = model;
+    tooltip.hidden = true;
+    shell.onmouseleave = null;
+    shell.onfocusout = null;
+    openButton.onclick = null;
+    if (!trades.length) {
+      svg.innerHTML = `<text x="450" y="140" text-anchor="middle" class="axis-label">暂无交易</text>`;
+      $("chartCaption").textContent = "0 笔完整交易";
+      return;
+    }
     svg.innerHTML = `<defs><linearGradient id="areaGradient" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#c94338" stop-opacity=".23"/><stop offset="1" stop-color="#c94338" stop-opacity="0"/></linearGradient></defs>
-      ${ticks.map((value) => `<line class="axis" x1="${pad.l}" y1="${y(value)}" x2="${W - pad.r}" y2="${y(value)}"/><text class="axis-label" x="${pad.l - 9}" y="${y(value) + 3}" text-anchor="end">${Math.round(value)}</text>`).join("")}
+      <title>累计净盈亏折线图</title><desc>悬停或点击节点查看交易数据；使用左右方向键切换节点，按回车打开交易详情。</desc>
+      ${ticks.map((value, index) => `<line class="axis" x1="${pad.l}" y1="${points.length ? pad.t + index / 4 * (H - pad.t - pad.b) : 0}" x2="${W - pad.r}" y2="${points.length ? pad.t + index / 4 * (H - pad.t - pad.b) : 0}"/><text class="axis-label" x="${pad.l - 9}" y="${pad.t + index / 4 * (H - pad.t - pad.b) + 3}" text-anchor="end">${Math.round(value)}</text>`).join("")}
       <path class="equity-area" d="${area}"/><path class="equity-line" d="${line}"/>
-      ${values.map((point, index) => `<circle class="point" cx="${points[index][0]}" cy="${points[index][1]}" r="3.3"><title>${esc(point.id)}｜累计 ¥${money(point.value)}</title></circle>`).join("")}
+      <line class="equity-guide" x1="0" y1="${pad.t}" x2="0" y2="${H - pad.b}"/>
+      ${values.map((point, index) => `<g class="chart-target" data-index="${index}" role="button" tabindex="0" aria-label="${esc(`${point.id}，${point.date}，单笔盈亏 ${money(point.pnl)} 元，累计净盈亏 ${money(point.value)} 元`)}"><rect class="chart-hit" x="${hitBounds[index].start}" y="${pad.t}" width="${hitBounds[index].end - hitBounds[index].start}" height="${H - pad.t - pad.b}"/><circle class="point" cx="${points[index][0]}" cy="${points[index][1]}" r="3.3"><title>${esc(point.id)}｜单笔 ¥${money(point.pnl)}｜累计 ¥${money(point.value)}</title></circle></g>`).join("")}
       ${values.map((point, index) => values.length <= 12 ? `<text class="axis-label" x="${points[index][0]}" y="${H - 12}" text-anchor="middle">${esc(point.id.replace("TR-", "#"))}</text>` : "").join("")}`;
-    $("chartCaption").textContent = `${values.length} 笔完整交易`;
+    svg.setAttribute("aria-label", `累计净盈亏折线图，共 ${values.length} 笔交易。使用左右方向键切换节点，按回车打开交易详情。`);
+    const guide = svg.querySelector(".equity-guide");
+    const targets = [...svg.querySelectorAll(".chart-target")];
+    let activeIndex = -1;
+
+    const hideTooltip = () => {
+      activeIndex = -1;
+      tooltip.hidden = true;
+      guide.classList.remove("is-visible");
+      targets.forEach((target) => target.classList.remove("is-active"));
+    };
+    const activatePoint = (index, { focus = false } = {}) => {
+      if (index < 0 || index >= values.length) return;
+      activeIndex = index;
+      const point = values[index];
+      const [pointX, pointY] = points[index];
+      const placement = tooltipPlacement(points[index], W, H);
+      targets.forEach((target, targetIndex) => target.classList.toggle("is-active", targetIndex === index));
+      guide.classList.add("is-visible");
+      guide.setAttribute("x1", pointX);
+      guide.setAttribute("x2", pointX);
+      $("equityTooltipId").textContent = point.id;
+      $("equityTooltipDate").textContent = point.date;
+      $("equityTooltipSummary").textContent = point.summary;
+      $("equityTooltipPnl").textContent = `¥${money(point.pnl)}`;
+      $("equityTooltipPnl").className = signedClass(point.pnl);
+      $("equityTooltipTotal").textContent = `¥${money(point.value)}`;
+      $("equityTooltipTotal").className = signedClass(point.value);
+      openButton.setAttribute("aria-label", `打开 ${point.id} 交易详情`);
+      tooltip.dataset.horizontal = placement.horizontal;
+      tooltip.dataset.vertical = placement.vertical;
+      tooltip.style.left = `${pointX / W * 100}%`;
+      tooltip.style.top = `${pointY / H * 100}%`;
+      tooltip.hidden = false;
+      if (focus) targets[index].focus();
+    };
+    const openTradeAt = (index, trigger) => {
+      const trade = trades[index];
+      if (!trade) return;
+      workspaceTrigger = trigger || targets[index];
+      openTradeWorkspace(trade);
+    };
+    const moveFocus = (fromIndex, direction) => activatePoint(Math.max(0, Math.min(values.length - 1, fromIndex + direction)), { focus: true });
+
+    targets.forEach((target, index) => {
+      target.addEventListener("mouseenter", () => activatePoint(index));
+      target.addEventListener("pointerup", (event) => {
+        if (event.pointerType === "touch") { event.preventDefault(); activatePoint(index); return; }
+        openTradeAt(index, target);
+      });
+      target.addEventListener("focus", () => activatePoint(index));
+      target.addEventListener("keydown", (event) => {
+        if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+          event.preventDefault();
+          moveFocus(index, event.key === "ArrowLeft" ? -1 : 1);
+        } else if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          openTradeAt(index, target);
+        } else if (event.key === "Escape") {
+          event.preventDefault();
+          hideTooltip();
+          target.blur();
+        }
+      });
+    });
+    shell.onmouseleave = () => { if (!shell.contains(document.activeElement)) hideTooltip(); };
+    shell.onfocusout = () => requestAnimationFrame(() => { if (!shell.contains(document.activeElement)) hideTooltip(); });
+    openButton.onclick = () => openTradeAt(activeIndex, openButton);
+    $("chartCaption").textContent = `${values.length} 笔完整交易 · 悬停或点击查看`;
   }
 
   function aggregate(trades, key) {
