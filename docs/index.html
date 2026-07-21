@@ -12,7 +12,7 @@
   <link rel="apple-touch-icon" sizes="180x180" href="./apple-touch-icon.png?v=20260720-1">
   <link rel="manifest" href="./site.webmanifest">
   <link rel="stylesheet" href="./styles.css?v=20260720-5">
-  <link rel="stylesheet" href="./readability.css?v=20260720-5">
+  <link rel="stylesheet" href="./readability.css?v=20260721-1">
 </head>
 <body>
   <div class="grain" aria-hidden="true"></div>
@@ -120,15 +120,24 @@
   <aside class="drawer" id="drawer"><button class="drawer-close" id="drawerClose" aria-label="关闭">×</button><div id="drawerContent"></div></aside>
   <div class="image-lightbox" id="imageLightbox" role="dialog" aria-modal="true" aria-labelledby="imageLightboxCaption" hidden>
     <button class="image-lightbox-close" id="imageLightboxClose" type="button" aria-label="关闭大图">×</button>
-    <figure>
-      <img id="imageLightboxImage" alt="">
-      <figcaption id="imageLightboxCaption"></figcaption>
-    </figure>
-    <span class="image-lightbox-hint">点击空白区域或按 Esc 关闭</span>
+    <div class="image-lightbox-stage" id="imageLightboxStage">
+      <figure id="imageLightboxFigure">
+        <img id="imageLightboxImage" alt="">
+        <figcaption id="imageLightboxCaption"></figcaption>
+      </figure>
+    </div>
+    <div class="image-lightbox-controls" aria-label="大图查看工具">
+      <button id="imageLightboxPrevious" type="button">上一张</button>
+      <button id="imageLightboxZoomOut" type="button">缩小</button>
+      <button id="imageLightboxZoomReset" type="button">100%</button>
+      <button id="imageLightboxZoomIn" type="button">放大</button>
+      <button id="imageLightboxNext" type="button">下一张</button>
+    </div>
+    <span class="image-lightbox-hint">滚轮缩放 · 左右方向键切换 · Esc 关闭</span>
   </div>
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
   <script src="./config.js"></script>
-  <script src="./app.js?v=20260720-5"></script>
+  <script src="./app.js?v=20260721-1"></script>
 </body>
 </html>

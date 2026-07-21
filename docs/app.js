@@ -13,6 +13,9 @@
   let activeTradeId = null;
   let attachmentUploadBusy = false;
   let lightboxTrigger = null;
+  let lightboxItems = [];
+  let lightboxIndex = -1;
+  let lightboxZoom = 1;
   let dashboardScrollY = 0;
   let workspaceTrigger = null;
 
@@ -52,13 +55,42 @@
   function clearAttachmentUrls() {
     attachmentObjectUrls.forEach((url) => URL.revokeObjectURL(url));
     attachmentObjectUrls = [];
+    lightboxItems = [];
+    lightboxIndex = -1;
+  }
+
+  function setLightboxZoom(value) {
+    lightboxZoom = Math.min(3, Math.max(.5, Math.round(value * 10) / 10));
+    $("imageLightboxFigure").style.setProperty("--lightbox-zoom", lightboxZoom);
+    $("imageLightboxZoomReset").textContent = `${Math.round(lightboxZoom * 100)}%`;
+  }
+
+  function renderLightboxItem() {
+    const item = lightboxItems[lightboxIndex];
+    if (!item) return;
+    $("imageLightboxImage").src = item.url;
+    $("imageLightboxImage").alt = item.attachment.fileName || "交易复盘图";
+    $("imageLightboxCaption").textContent = `${item.attachment.fileName || "交易复盘图"} · ${lightboxIndex + 1} / ${lightboxItems.length}`;
+    $("imageLightboxPrevious").disabled = lightboxItems.length < 2;
+    $("imageLightboxNext").disabled = lightboxItems.length < 2;
+    $("imageLightboxStage").scrollTo({ top: 0, left: 0 });
+    setLightboxZoom(1);
+  }
+
+  function switchLightboxItem(direction) {
+    if (lightboxItems.length < 2) return;
+    lightboxIndex = (lightboxIndex + direction + lightboxItems.length) % lightboxItems.length;
+    renderLightboxItem();
   }
 
   function openImageLightbox(url, attachment, trigger) {
     lightboxTrigger = trigger || null;
-    $("imageLightboxImage").src = url;
-    $("imageLightboxImage").alt = attachment.fileName || "交易复盘图";
-    $("imageLightboxCaption").textContent = attachment.fileName || "交易复盘图";
+    lightboxIndex = lightboxItems.findIndex((item) => item.url === url);
+    if (lightboxIndex < 0) {
+      lightboxItems.push({ url, attachment });
+      lightboxIndex = lightboxItems.length - 1;
+    }
+    renderLightboxItem();
     $("imageLightbox").hidden = false;
     document.body.classList.add("lightbox-open");
     $("imageLightboxClose").focus();
@@ -69,6 +101,7 @@
     $("imageLightbox").hidden = true;
     document.body.classList.remove("lightbox-open");
     $("imageLightboxImage").removeAttribute("src");
+    setLightboxZoom(1);
     if (lightboxTrigger?.isConnected) lightboxTrigger.focus();
     lightboxTrigger = null;
   }
@@ -115,6 +148,7 @@
         if (!response.ok) throw new Error("图片读取失败");
         const url = URL.createObjectURL(await response.blob());
         attachmentObjectUrls.push(url);
+        lightboxItems.push({ url, attachment });
         const image = document.createElement("img");
         image.src = url;
         image.alt = `${trade.tradeId} ${attachment.fileName}`;
@@ -419,10 +453,14 @@
     }
   }
 
-  function openTradeWorkspace(trade, { historyMode = "push", scrollTop = 0 } = {}) {
+  function openTradeWorkspace(trade, { historyMode = "push", scrollTop = null, evidenceScrollTop = null, reviewScrollTop = null } = {}) {
     if (!trade) return;
     const workspace = $("tradeWorkspace");
     const wasHidden = workspace.hidden;
+    const sameTrade = !wasHidden && activeTradeId === trade.tradeId;
+    const nextWorkspaceScroll = scrollTop ?? (sameTrade ? workspace.scrollTop : 0);
+    const nextEvidenceScroll = evidenceScrollTop ?? (sameTrade ? document.querySelector(".workspace-evidence")?.scrollTop || 0 : 0);
+    const nextReviewScroll = reviewScrollTop ?? (sameTrade ? document.querySelector(".workspace-review-rail")?.scrollTop || 0 : 0);
     if (wasHidden) dashboardScrollY = window.scrollY;
     document.body.classList.remove("drawer-open");
     clearAttachmentUrls();
@@ -452,10 +490,11 @@
         </div>
         <div class="upload-state" id="uploadState"></div>
       </section>
-      <aside class="workspace-panel workspace-summary"><div class="summary-label">TRADE SNAPSHOT</div><div class="workspace-result"><span>净盈亏</span><b class="${signedClass(trade.netPnl)}">¥${money(trade.netPnl)}</b><small>${esc(trade.result)} · ${num(trade.points)} 点</small></div>
-        <dl class="workspace-facts"><div><dt>开仓</dt><dd>${esc(trade.entryTime)} · ${trade.entryQty}手</dd><small>加权价 ${num(trade.entryPrice)}</small></div><div><dt>平仓</dt><dd>${esc(trade.exitTime)} · ${trade.exitQty}手</dd><small>加权价 ${num(trade.exitPrice)}</small></div><div><dt>持仓时长</dt><dd>${esc(trade.holdingLabel)}</dd></div><div><dt>毛盈亏</dt><dd class="${signedClass(trade.grossPnl)}">¥${money(trade.grossPnl)}</dd></div><div><dt>手续费</dt><dd>¥${money(trade.fees)}</dd></div><div><dt>计划风险</dt><dd>${trade.plannedRisk != null ? `¥${money(trade.plannedRisk)}` : "待补充"}</dd></div><div><dt>实际风险</dt><dd>${trade.actualRisk != null ? `¥${money(trade.actualRisk)}` : "待补充"}</dd></div><div><dt>计划 R</dt><dd class="${signedClass(trade.plannedR)}">${trade.plannedR != null ? `${num(trade.plannedR)} R` : "待计算"}</dd><small>净盈亏 ÷ 计划风险</small></div><div><dt>实际 R</dt><dd class="${signedClass(trade.actualR)}">${trade.actualR != null ? `${num(trade.actualR)} R` : "待计算"}</dd><small>净盈亏 ÷ 实际风险</small></div></dl>
-      </aside></div>
-      <section class="workspace-panel workspace-review"><div class="review-heading"><div><span>REVIEW NOTES</span><h2>完整复盘</h2></div><p>填写后点击页面顶部“保存复盘”，立即同步到所有设备。</p></div>
+      <div class="workspace-review-rail" aria-label="交易摘要与复盘表单">
+        <aside class="workspace-panel workspace-summary"><div class="summary-label">TRADE SNAPSHOT</div><div class="workspace-result"><span>净盈亏</span><b class="${signedClass(trade.netPnl)}">¥${money(trade.netPnl)}</b><small>${esc(trade.result)} · ${num(trade.points)} 点</small></div>
+          <dl class="workspace-facts"><div><dt>开仓</dt><dd>${esc(trade.entryTime)} · ${trade.entryQty}手</dd><small>加权价 ${num(trade.entryPrice)}</small></div><div><dt>平仓</dt><dd>${esc(trade.exitTime)} · ${trade.exitQty}手</dd><small>加权价 ${num(trade.exitPrice)}</small></div><div><dt>持仓时长</dt><dd>${esc(trade.holdingLabel)}</dd></div><div><dt>毛盈亏</dt><dd class="${signedClass(trade.grossPnl)}">¥${money(trade.grossPnl)}</dd></div><div><dt>手续费</dt><dd>¥${money(trade.fees)}</dd></div><div><dt>计划风险</dt><dd>${trade.plannedRisk != null ? `¥${money(trade.plannedRisk)}` : "待补充"}</dd></div><div><dt>实际风险</dt><dd>${trade.actualRisk != null ? `¥${money(trade.actualRisk)}` : "待补充"}</dd></div><div><dt>计划 R</dt><dd class="${signedClass(trade.plannedR)}">${trade.plannedR != null ? `${num(trade.plannedR)} R` : "待计算"}</dd><small>净盈亏 ÷ 计划风险</small></div><div><dt>实际 R</dt><dd class="${signedClass(trade.actualR)}">${trade.actualR != null ? `${num(trade.actualR)} R` : "待计算"}</dd><small>净盈亏 ÷ 实际风险</small></div></dl>
+        </aside>
+        <section class="workspace-panel workspace-review"><div class="review-heading"><div><span>REVIEW NOTES</span><h2>完整复盘</h2></div><p>填写后点击页面顶部“保存复盘”，立即同步到所有设备。</p></div>
       <form id="annotationForm"><div class="edit-grid">
         <label class="edit-field"><span>交易日期</span><input name="date" type="date" value="${esc(trade.date || "")}"></label>
         <label class="edit-field"><span>执行评分（1–5）</span><select name="executionScore">${optionList(["1", "2", "3", "4", "5"], trade.executionScore)}</select></label>
@@ -469,12 +508,15 @@
         <label class="edit-field full"><span>出场理由</span><textarea name="exitReason">${esc(trade.exitReason || "")}</textarea></label>
         <label class="edit-field full"><span>复盘备注</span><textarea name="reviewNotes">${esc(trade.reviewNotes || "")}</textarea></label>
       </div><div class="edit-actions"><button class="ghost-button clear-button" id="clearAnnotation" type="button">清除文字补充</button><span class="save-state" id="saveState">云端持久化</span></div></form>
-      <section class="delete-trade-section"><div><h3>不计入统计</h3><p>将整笔交易移入回收站。复盘文字和图片都会保留，之后可以恢复。</p></div><button class="ghost-button delete-trade-button" id="deleteTrade" type="button">移入回收站</button></section></section>`;
+        <section class="delete-trade-section"><div><h3>不计入统计</h3><p>将整笔交易移入回收站。复盘文字和图片都会保留，之后可以恢复。</p></div><button class="ghost-button delete-trade-button" id="deleteTrade" type="button">移入回收站</button></section></section>
+      </div></div>`;
     workspace.hidden = false;
     document.body.classList.add("workspace-open");
     $("app").inert = true;
     $("app").setAttribute("aria-hidden", "true");
-    workspace.scrollTop = scrollTop;
+    workspace.scrollTop = nextWorkspaceScroll;
+    document.querySelector(".workspace-evidence").scrollTop = nextEvidenceScroll;
+    document.querySelector(".workspace-review-rail").scrollTop = nextReviewScroll;
     if (wasHidden) $("workspaceBack").focus();
     loadAttachmentPreviews(trade);
     $("previousTrade").onclick = () => previous && openTradeWorkspace(previous, { historyMode: "replace" });
@@ -589,12 +631,32 @@
   $("drawerMask").addEventListener("click", closeDrawer);
   $("workspaceBack").addEventListener("click", requestCloseTradeWorkspace);
   $("imageLightboxClose").addEventListener("click", closeImageLightbox);
+  $("imageLightboxPrevious").addEventListener("click", () => switchLightboxItem(-1));
+  $("imageLightboxNext").addEventListener("click", () => switchLightboxItem(1));
+  $("imageLightboxZoomOut").addEventListener("click", () => setLightboxZoom(lightboxZoom - .2));
+  $("imageLightboxZoomReset").addEventListener("click", () => setLightboxZoom(1));
+  $("imageLightboxZoomIn").addEventListener("click", () => setLightboxZoom(lightboxZoom + .2));
+  $("imageLightboxStage").addEventListener("wheel", (event) => {
+    if ($("imageLightbox").hidden) return;
+    event.preventDefault();
+    setLightboxZoom(lightboxZoom + (event.deltaY < 0 ? .1 : -.1));
+  }, { passive: false });
+  $("imageLightboxStage").addEventListener("click", (event) => { if (event.target === event.currentTarget) closeImageLightbox(); });
   $("imageLightbox").addEventListener("click", (event) => { if (event.target === event.currentTarget) closeImageLightbox(); });
   document.addEventListener("keydown", (event) => {
-    if (event.key !== "Escape") return;
-    if (!$("imageLightbox").hidden) closeImageLightbox();
-    else if (!$("tradeWorkspace").hidden) requestCloseTradeWorkspace();
-    else closeDrawer();
+    if (!$("imageLightbox").hidden) {
+      if (["Escape", "ArrowLeft", "ArrowRight", "+", "=", "-"].includes(event.key)) event.preventDefault();
+      if (event.key === "Escape") closeImageLightbox();
+      else if (event.key === "ArrowLeft") switchLightboxItem(-1);
+      else if (event.key === "ArrowRight") switchLightboxItem(1);
+      else if (event.key === "+" || event.key === "=") setLightboxZoom(lightboxZoom + .2);
+      else if (event.key === "-") setLightboxZoom(lightboxZoom - .2);
+      return;
+    }
+    if (event.key === "Escape") {
+      if (!$("tradeWorkspace").hidden) requestCloseTradeWorkspace();
+      else closeDrawer();
+    }
   });
   document.addEventListener("paste", (event) => {
     if (!activeTradeId || !document.body.classList.contains("workspace-open")) return;

@@ -84,3 +84,46 @@ footer{font-size:12px;line-height:1.7}
   table{font-size:13px}
   th,td{padding:13px}
 }
+
+/* Trade detail: keep chart evidence and review context visible together. */
+.workspace-review-rail{display:flex;min-width:0;flex-direction:column;gap:22px}
+.workspace-review-rail .workspace-review{margin-top:0}
+.image-lightbox-stage{position:fixed;inset:68px 72px 104px;display:grid;overflow:auto;place-items:center;overscroll-behavior:contain}
+.image-lightbox-stage figure{--lightbox-zoom:1;transform:scale(var(--lightbox-zoom));transform-origin:center;transition:transform .16s ease-out}
+.image-lightbox-controls{position:fixed;bottom:42px;left:50%;z-index:2;display:flex;gap:7px;padding:7px;border:1px solid rgba(255,255,255,.18);border-radius:10px;background:rgba(9,17,26,.82);transform:translateX(-50%);backdrop-filter:blur(10px)}
+.image-lightbox-controls button{min-width:62px;padding:8px 11px;border:1px solid rgba(255,255,255,.2);border-radius:7px;color:#fff;background:rgba(255,255,255,.08);font:600 12px Bahnschrift,sans-serif;cursor:pointer}
+.image-lightbox-controls button:hover:not(:disabled){background:rgba(255,255,255,.18)}
+.image-lightbox-controls button:disabled{opacity:.38;cursor:not-allowed}
+.image-lightbox-controls #imageLightboxZoomReset{min-width:58px;color:#f4c36c}
+.image-lightbox-hint{bottom:14px}
+
+@media(min-width:1101px){
+  .trade-workspace{overflow:hidden}
+  .workspace-toolbar{height:92px}
+  .workspace-content{height:calc(100vh - 92px);height:calc(100dvh - 92px);padding-top:22px;padding-bottom:22px;overflow:hidden}
+  .workspace-primary-grid{height:100%;grid-template-columns:minmax(0,1.62fr) minmax(420px,1fr);align-items:stretch}
+  .workspace-evidence{min-height:0;overflow:auto;overscroll-behavior:contain;scrollbar-gutter:stable}
+  .workspace-review-rail{min-height:0;gap:18px;overflow-y:auto;overscroll-behavior:contain;scrollbar-gutter:stable;padding-right:4px}
+  .workspace-summary{position:relative;top:auto;flex:none}
+  .workspace-summary .summary-label{padding:16px 22px 8px}
+  .workspace-summary .workspace-result{padding:10px 22px 18px}
+  .workspace-summary .workspace-result>b{font-size:clamp(34px,3vw,46px)}
+  .workspace-summary .workspace-facts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 16px;padding:6px 22px 18px}
+  .workspace-summary .workspace-facts>div{grid-template-columns:minmax(52px,auto) minmax(0,1fr);gap:4px 10px;padding:12px 0}
+  .workspace-summary .workspace-facts dt{grid-row:1}
+  .workspace-summary .workspace-facts dd{grid-column:2;grid-row:1}
+  .workspace-summary .workspace-facts small{grid-column:1/-1;grid-row:2;text-align:right}
+  .workspace-review{padding:24px}
+  .workspace-review .review-heading{display:block;margin-bottom:20px}
+  .workspace-review .review-heading p{margin:7px 0 0;text-align:left}
+  .workspace-review .edit-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+  .workspace-review .edit-field.full{grid-column:1/-1}
+  .workspace-review .edit-field textarea{min-height:108px}
+}
+
+@media(max-width:760px){
+  .workspace-review-rail{gap:14px}
+  .image-lightbox-stage{inset:58px 10px 118px}
+  .image-lightbox-controls{bottom:43px;max-width:calc(100vw - 20px);overflow-x:auto}
+  .image-lightbox-controls button{min-width:58px;padding:8px}
+}
