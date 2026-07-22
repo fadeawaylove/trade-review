@@ -1,4 +1,4 @@
-import { buildEquityChartModel, chartWidthForRange, resolveChartRange } from "./equity-chart.js?v=20260722-4";
+import { buildEquityChartModel, chartWidthForRange, resolveChartRange } from "./equity-chart.js?v=20260723-1";
 import { buildEvidenceCarouselState } from "./evidence-carousel.js?v=20260721-1";
 import { clearAttachmentCache, loadAttachmentBlob, removeAttachmentFromCache } from "./attachment-cache.js?v=20260722-1";
 
@@ -387,7 +387,7 @@ import { clearAttachmentCache, loadAttachmentBlob, removeAttachmentFromCache } f
       $("chartCaption").textContent = "0 个交易日";
       return;
     }
-    svg.innerHTML = `<title>当日已实现盈亏日K图</title><desc>每根K线代表一个交易日；开盘从零开始，最高和最低为当天按平仓顺序逐笔累加后的盈亏极值，收盘为当日最终净盈亏。悬停或使用左右方向键查看交易日数据。</desc>
+    svg.innerHTML = `<title>累计已实现盈亏日K图</title><desc>每根K线代表一个交易日；开盘承接前一交易日收盘，最高和最低为当天按平仓时间顺序逐笔累加后的累计盈亏极值，收盘为当日结束时的累计净盈亏。悬停或使用左右方向键查看交易日数据。</desc>
       ${ticks.map((value, index) => `<line class="axis" x1="${pad.l}" y1="${points.length ? pad.t + index / 4 * (H - pad.t - pad.b) : 0}" x2="${W - pad.r}" y2="${points.length ? pad.t + index / 4 * (H - pad.t - pad.b) : 0}"/><text class="axis-label" x="${pad.l - 9}" y="${pad.t + index / 4 * (H - pad.t - pad.b) + 3}" text-anchor="end">${Math.round(value)}</text>`).join("")}
       ${candles.map((candle, index) => {
         const day = values[index];
@@ -396,7 +396,7 @@ import { clearAttachmentCache, loadAttachmentBlob, removeAttachmentFromCache } f
       }).join("")}
       <line class="equity-guide" x1="0" y1="${pad.t}" x2="0" y2="${H - pad.b}"/>
       ${labelIndices.map((index) => `<text class="axis-label equity-date-label" x="${points[index][0]}" y="${H - 12}" text-anchor="middle">${esc(String(values[index].date).replace(/^\d{4}[/-]/, ""))}</text>`).join("")}`;
-    svg.setAttribute("aria-label", `当日已实现盈亏日K图，当前显示 ${values.length} 个交易日，共 ${model.totalDays} 个交易日。悬停或使用左右方向键查看交易日数据。`);
+    svg.setAttribute("aria-label", `累计已实现盈亏日K图，当前显示 ${values.length} 个交易日，共 ${model.totalDays} 个交易日。悬停或使用左右方向键查看交易日数据。`);
     const guide = svg.querySelector(".equity-guide");
     const targets = [...svg.querySelectorAll(".chart-target")];
     let dragState = null;
