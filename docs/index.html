@@ -12,7 +12,7 @@
   <link rel="apple-touch-icon" sizes="180x180" href="./apple-touch-icon.png?v=20260720-1">
   <link rel="manifest" href="./site.webmanifest">
   <link rel="stylesheet" href="./styles.css?v=20260720-5">
-  <link rel="stylesheet" href="./readability.css?v=20260722-3">
+  <link rel="stylesheet" href="./readability.css?v=20260722-4">
 </head>
 <body>
   <div class="grain" aria-hidden="true"></div>
@@ -97,13 +97,13 @@
             </div>
             <div class="equity-tooltip" id="equityTooltip" role="group" aria-live="polite" aria-label="交易日K线详情" hidden>
               <div class="equity-tooltip-head"><b id="equityTooltipId"></b><span id="equityTooltipSummary"></span></div>
-              <div class="equity-tooltip-values equity-tooltip-ohlc">
-                <div><span>开盘</span><b id="equityTooltipOpenValue"></b></div><div><span>最高</span><b id="equityTooltipHigh"></b></div>
-                <div><span>最低</span><b id="equityTooltipLow"></b></div><div><span>收盘</span><b id="equityTooltipClose"></b></div>
-              </div>
-              <div class="equity-tooltip-footer">
-                <div class="equity-tooltip-change"><span>当日净盈亏</span><b id="equityTooltipDayPnl"></b></div>
-              </div>
+              <dl class="equity-tooltip-values">
+                <div><dt>开盘</dt><dd id="equityTooltipOpenValue"></dd></div>
+                <div><dt>单笔最高</dt><dd id="equityTooltipHigh"></dd></div>
+                <div><dt>单笔最低</dt><dd id="equityTooltipLow"></dd></div>
+                <div><dt>收盘</dt><dd id="equityTooltipClose"></dd></div>
+                <div class="equity-tooltip-change"><dt>当日盈亏</dt><dd id="equityTooltipDayPnl"></dd></div>
+              </dl>
             </div>
           </div>
         </article>
@@ -168,6 +168,6 @@
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
   <script src="./config.js"></script>
-  <script type="module" src="./app.js?v=20260722-3"></script>
+  <script type="module" src="./app.js?v=20260722-5"></script>
 </body>
 </html>

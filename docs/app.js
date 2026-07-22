@@ -1,5 +1,6 @@
-import { buildEquityChartModel, chartWidthForRange, resolveChartRange } from "./equity-chart.js?v=20260722-2";
+import { buildEquityChartModel, chartWidthForRange, resolveChartRange } from "./equity-chart.js?v=20260722-3";
 import { buildEvidenceCarouselState } from "./evidence-carousel.js?v=20260721-1";
+import { clearAttachmentCache, loadAttachmentBlob, removeAttachmentFromCache } from "./attachment-cache.js?v=20260722-1";
 
 (() => {
   const CONFIG = window.TRADE_CONFIG || {};
@@ -154,9 +155,8 @@ import { buildEvidenceCarouselState } from "./evidence-carousel.js?v=20260721-1"
       const host = document.querySelector(`[data-attachment-id="${attachment.id}"] .evidence-preview`);
       if (!host) continue;
       try {
-        const response = await fetch(`${API}/api/attachments/${encodeURIComponent(attachment.id)}`, { headers: { Authorization: `Bearer ${token}` } });
-        if (!response.ok) throw new Error("图片读取失败");
-        const url = URL.createObjectURL(await response.blob());
+        const blob = await loadAttachmentBlob({ apiBase: API, attachmentId: attachment.id, token });
+        const url = URL.createObjectURL(blob);
         attachmentObjectUrls.push(url);
         lightboxItems.push({ url, attachment });
         const image = document.createElement("img");
@@ -387,12 +387,12 @@ import { buildEvidenceCarouselState } from "./evidence-carousel.js?v=20260721-1"
       $("chartCaption").textContent = "0 个交易日";
       return;
     }
-    svg.innerHTML = `<title>累计已实现盈亏日K图</title><desc>每根K线代表一个交易日；开盘为前日收盘，最高和最低为当日逐笔结算后的累计盈亏极值，收盘为当日最终累计盈亏。悬停或使用左右方向键查看交易日数据。</desc>
+    svg.innerHTML = `<title>累计已实现盈亏日K图</title><desc>每根K线代表一个交易日；开盘为前日收盘，最高和最低为当日单笔净盈亏极值，收盘为当日最终累计盈亏。悬停或使用左右方向键查看交易日数据。</desc>
       ${ticks.map((value, index) => `<line class="axis" x1="${pad.l}" y1="${points.length ? pad.t + index / 4 * (H - pad.t - pad.b) : 0}" x2="${W - pad.r}" y2="${points.length ? pad.t + index / 4 * (H - pad.t - pad.b) : 0}"/><text class="axis-label" x="${pad.l - 9}" y="${pad.t + index / 4 * (H - pad.t - pad.b) + 3}" text-anchor="end">${Math.round(value)}</text>`).join("")}
       ${candles.map((candle, index) => {
         const day = values[index];
         const candleClass = day.close >= day.open ? "candle-profit" : "candle-loss";
-        return `<g class="chart-target" data-index="${index}" role="img" tabindex="0" aria-label="${esc(`${day.date}，开盘 ${money(day.open)} 元，最高 ${money(day.high)} 元，最低 ${money(day.low)} 元，收盘 ${money(day.close)} 元，当日净盈亏 ${money(day.dayPnl)} 元，共 ${day.tradeCount} 笔交易`)}"><rect class="chart-hit" x="${hitBounds[index].start}" y="${pad.t}" width="${hitBounds[index].end - hitBounds[index].start}" height="${H - pad.t - pad.b}"/><line class="candle-wick ${candleClass}" x1="${candle.x}" y1="${candle.highY}" x2="${candle.x}" y2="${candle.lowY}"/><rect class="candle-body ${candleClass}" x="${candle.x - candle.bodyWidth / 2}" y="${candle.bodyY}" width="${candle.bodyWidth}" height="${candle.bodyHeight}" rx="1"><title>${esc(day.date)}｜开 ¥${money(day.open)}｜高 ¥${money(day.high)}｜低 ¥${money(day.low)}｜收 ¥${money(day.close)}</title></rect></g>`;
+        return `<g class="chart-target" data-index="${index}" role="img" tabindex="0" aria-label="${esc(`${day.date}，开盘 ${money(day.open)} 元，单笔最高 ${money(day.high)} 元，单笔最低 ${money(day.low)} 元，收盘 ${money(day.close)} 元，当日净盈亏 ${money(day.dayPnl)} 元，共 ${day.tradeCount} 笔交易`)}"><rect class="chart-hit" x="${hitBounds[index].start}" y="${pad.t}" width="${hitBounds[index].end - hitBounds[index].start}" height="${H - pad.t - pad.b}"/><line class="candle-wick ${candleClass}" x1="${candle.x}" y1="${candle.highY}" x2="${candle.x}" y2="${candle.lowY}"/><rect class="candle-body ${candleClass}" x="${candle.x - candle.bodyWidth / 2}" y="${candle.bodyY}" width="${candle.bodyWidth}" height="${candle.bodyHeight}" rx="1"><title>${esc(day.date)}｜开 ¥${money(day.open)}｜单笔高 ¥${money(day.high)}｜单笔低 ¥${money(day.low)}｜收 ¥${money(day.close)}</title></rect></g>`;
       }).join("")}
       <line class="equity-guide" x1="0" y1="${pad.t}" x2="0" y2="${H - pad.b}"/>
       ${labelIndices.map((index) => `<text class="axis-label equity-date-label" x="${points[index][0]}" y="${H - 12}" text-anchor="middle">${esc(String(values[index].date).replace(/^\d{4}[/-]/, ""))}</text>`).join("")}`;
@@ -712,7 +712,9 @@ import { buildEvidenceCarouselState } from "./evidence-carousel.js?v=20260721-1"
         if (!armed) { armed = true; button.textContent = "确认删除"; return; }
         button.disabled = true;
         try {
-          await apiFetch(`/api/attachments/${encodeURIComponent(button.dataset.deleteAttachment)}`, { method: "DELETE" });
+          const attachmentId = button.dataset.deleteAttachment;
+          await apiFetch(`/api/attachments/${encodeURIComponent(attachmentId)}`, { method: "DELETE" });
+          await removeAttachmentFromCache(API, attachmentId);
           await refreshDashboard();
           openTradeWorkspace(dashboard.trades.find((row) => row.tradeId === trade.tradeId), { historyMode: "none", scrollTop: workspace.scrollTop });
           notify("复盘图已删除");
@@ -799,7 +801,7 @@ import { buildEvidenceCarouselState } from "./evidence-carousel.js?v=20260721-1"
   }
 
   $("loginButton").addEventListener("click", login);
-  $("logoutButton").addEventListener("click", () => { clearToken(); setAuthVisible(true); });
+  $("logoutButton").addEventListener("click", () => { clearToken(); clearAttachmentCache(); setAuthVisible(true); });
   $("trashButton").addEventListener("click", openTrashDrawer);
   $("exportButton").addEventListener("click", exportBackup);
   Object.values(selects).forEach((select) => select.addEventListener("change", render));

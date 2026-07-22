@@ -52,16 +52,16 @@ export function buildEquityChartModel(trades, options = {}) {
   let cumulative = 0;
   const allValues = groupedTrades.map((group) => {
     const open = cumulative;
-    let high = open;
-    let low = open;
     let dayPnl = 0;
+    let high = -Infinity;
+    let low = Infinity;
 
     group.trades.forEach(({ trade }) => {
       const pnl = Number(trade.netPnl) || 0;
       dayPnl += pnl;
       cumulative += pnl;
-      high = Math.max(high, cumulative);
-      low = Math.min(low, cumulative);
+      high = Math.max(high, pnl);
+      low = Math.min(low, pnl);
     });
 
     const tradeIds = group.trades.map(({ trade }) => trade.tradeId);
@@ -102,8 +102,8 @@ export function buildEquityChartModel(trades, options = {}) {
   const visibleStart = Math.max(0, visibleEnd - visibleCount);
   const values = allValues.slice(visibleStart, visibleEnd);
 
-  const observedMin = Math.min(0, ...values.map((day) => day.low));
-  const observedMax = Math.max(0, ...values.map((day) => day.high));
+  const observedMin = Math.min(0, ...values.flatMap((day) => [day.open, day.high, day.low, day.close]));
+  const observedMax = Math.max(0, ...values.flatMap((day) => [day.open, day.high, day.low, day.close]));
   const observedSpan = Math.max(1, observedMax - observedMin);
   const domainMin = observedMin - observedSpan * .08;
   const domainMax = observedMax + observedSpan * .08;
