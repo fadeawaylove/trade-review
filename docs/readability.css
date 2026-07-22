@@ -74,9 +74,14 @@ footer{font-size:12px;line-height:1.7}
 .equity-guide{stroke:rgba(33,49,68,.34);stroke-width:1;stroke-dasharray:4 4;vector-effect:non-scaling-stroke;pointer-events:none;opacity:0;transition:opacity 120ms ease}
 .equity-guide.is-visible{opacity:1}
 .chart-target{outline:none}
-.chart-target .point{transform-box:fill-box;transform-origin:center;transition:transform .14s ease,fill .14s ease,stroke-width .14s ease}
-.chart-target.is-active .point,.chart-target:focus-visible .point{fill:var(--profit);stroke:#fffdf8;stroke-width:3;transform:scale(1.65)}
-.equity-tooltip{position:absolute;z-index:2;width:240px;max-width:calc(100% - 24px);padding:13px;border:1px solid rgba(255,255,255,.14);border-radius:10px;color:#fffaf4;background:rgba(28,43,59,.96);box-shadow:0 18px 48px rgba(24,35,46,.28);backdrop-filter:blur(12px)}
+.candle-wick{stroke-width:1.7;vector-effect:non-scaling-stroke;pointer-events:none;transition:stroke-width .14s ease,opacity .14s ease}
+.candle-body{stroke-width:1.4;vector-effect:non-scaling-stroke;pointer-events:none;transition:stroke-width .14s ease,filter .14s ease,opacity .14s ease}
+.candle-profit{fill:rgba(201,67,56,.76);stroke:var(--profit)}
+.candle-loss{fill:rgba(22,139,99,.76);stroke:var(--loss)}
+.chart-target.is-active .candle-wick,.chart-target:focus-visible .candle-wick{stroke-width:2.5;opacity:1}
+.chart-target.is-active .candle-body,.chart-target:focus-visible .candle-body{stroke:#fffdf8;stroke-width:2.5;filter:drop-shadow(0 4px 5px rgba(33,49,68,.24));opacity:1}
+.equity-date-label{font-weight:700;letter-spacing:.03em}
+.equity-tooltip{position:absolute;z-index:2;width:270px;max-width:calc(100% - 24px);padding:13px;border:1px solid rgba(255,255,255,.14);border-radius:10px;color:#fffaf4;background:rgba(28,43,59,.96);box-shadow:0 18px 48px rgba(24,35,46,.28);backdrop-filter:blur(12px)}
 .equity-tooltip[data-horizontal="right"][data-vertical="below"]{transform:translate(14px,14px)}
 .equity-tooltip[data-horizontal="right"][data-vertical="above"]{transform:translate(14px,calc(-100% - 14px))}
 .equity-tooltip[data-horizontal="left"][data-vertical="below"]{transform:translate(calc(-100% - 14px),14px)}
@@ -84,6 +89,8 @@ footer{font-size:12px;line-height:1.7}
 .equity-tooltip-head{display:flex;align-items:start;justify-content:space-between;gap:12px;padding-bottom:10px;border-bottom:1px solid rgba(255,255,255,.13)}
 .equity-tooltip-head b,.equity-tooltip-head small{display:block}.equity-tooltip-head b{font:700 14px Bahnschrift,sans-serif}.equity-tooltip-head small{margin-top:3px;color:rgba(255,255,255,.6);font-size:10px}.equity-tooltip-head>span{color:rgba(255,255,255,.72);font-size:11px;text-align:right}
 .equity-tooltip-values{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:11px 0}.equity-tooltip-values div{min-width:0}.equity-tooltip-values span,.equity-tooltip-values b{display:block}.equity-tooltip-values span{color:rgba(255,255,255,.58);font-size:10px}.equity-tooltip-values b{overflow:hidden;margin-top:4px;color:#fffaf4;font:700 14px Bahnschrift,sans-serif;text-overflow:ellipsis;white-space:nowrap}.equity-tooltip-values b.positive{color:#ff8278!important}.equity-tooltip-values b.negative{color:#62d3ad!important}
+.equity-tooltip-ohlc{padding-bottom:10px;border-bottom:1px solid rgba(255,255,255,.13)}
+.equity-tooltip-change{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:-1px 0 11px}.equity-tooltip-change span{color:rgba(255,255,255,.58);font-size:10px}.equity-tooltip-change b{font:700 15px Bahnschrift,sans-serif}.equity-tooltip-change b.positive{color:#ff8278!important}.equity-tooltip-change b.negative{color:#62d3ad!important}
 .equity-tooltip button{width:100%;padding:8px 10px;border:1px solid rgba(255,255,255,.18);border-radius:7px;color:#fffaf4;background:rgba(255,255,255,.08);font-size:11px;font-weight:700;cursor:pointer}.equity-tooltip button:hover,.equity-tooltip button:focus-visible{background:rgba(255,255,255,.17);outline:2px solid rgba(244,195,108,.55);outline-offset:2px}
 
 @media(max-width:1060px){
@@ -158,4 +165,4 @@ footer{font-size:12px;line-height:1.7}
   .equity-tooltip{width:220px;padding:11px}
 }
 
-@media(prefers-reduced-motion:reduce){.chart-target .point{transition:none}}
+@media(prefers-reduced-motion:reduce){.candle-wick,.candle-body{transition:none}}
