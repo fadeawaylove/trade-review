@@ -337,7 +337,6 @@ import { buildEvidenceCarouselState } from "./evidence-carousel.js?v=20260721-1"
     const shell = $("equityChartShell");
     const viewport = $("equityChartViewport");
     const tooltip = $("equityTooltip");
-    const openButton = $("equityTooltipOpen");
     const earlierButton = $("equityEarlier");
     const laterButton = $("equityLater");
     const rangeButtons = [...document.querySelectorAll("[data-chart-range]")];
@@ -355,7 +354,7 @@ import { buildEvidenceCarouselState } from "./evidence-carousel.js?v=20260721-1"
       width: chartWidth,
       visibleCount,
       windowEnd: equityChartWindowEnd,
-      pad: { t: compact ? 24 : 82 },
+      pad: { t: 74 },
     });
     const { width: W, height: H, pad, values, points, candles, hitBounds, ticks, labelIndices } = model;
     equityChartWindowEnd = model.visibleEnd;
@@ -368,7 +367,6 @@ import { buildEvidenceCarouselState } from "./evidence-carousel.js?v=20260721-1"
     viewport.onpointermove = null;
     viewport.onpointerup = null;
     viewport.onpointercancel = null;
-    openButton.onclick = null;
     rangeButtons.forEach((button) => {
       const mode = button.dataset.chartRange;
       if (mode === "short") button.textContent = compact ? "近15日" : "近30日";
@@ -389,24 +387,22 @@ import { buildEvidenceCarouselState } from "./evidence-carousel.js?v=20260721-1"
       $("chartCaption").textContent = "0 个交易日";
       return;
     }
-    svg.innerHTML = `<title>累计已实现盈亏日K图</title><desc>每根K线代表一个交易日；开盘为前日收盘，最高和最低为当日逐笔结算后的累计盈亏极值，收盘为当日最终累计盈亏。使用左右方向键切换交易日，按回车打开当日最后一笔交易。</desc>
+    svg.innerHTML = `<title>累计已实现盈亏日K图</title><desc>每根K线代表一个交易日；开盘为前日收盘，最高和最低为当日逐笔结算后的累计盈亏极值，收盘为当日最终累计盈亏。悬停或使用左右方向键查看交易日数据。</desc>
       ${ticks.map((value, index) => `<line class="axis" x1="${pad.l}" y1="${points.length ? pad.t + index / 4 * (H - pad.t - pad.b) : 0}" x2="${W - pad.r}" y2="${points.length ? pad.t + index / 4 * (H - pad.t - pad.b) : 0}"/><text class="axis-label" x="${pad.l - 9}" y="${pad.t + index / 4 * (H - pad.t - pad.b) + 3}" text-anchor="end">${Math.round(value)}</text>`).join("")}
       ${candles.map((candle, index) => {
         const day = values[index];
         const candleClass = day.close >= day.open ? "candle-profit" : "candle-loss";
-        return `<g class="chart-target" data-index="${index}" role="button" tabindex="0" aria-label="${esc(`${day.date}，开盘 ${money(day.open)} 元，最高 ${money(day.high)} 元，最低 ${money(day.low)} 元，收盘 ${money(day.close)} 元，当日净盈亏 ${money(day.dayPnl)} 元，共 ${day.tradeCount} 笔交易`)}"><rect class="chart-hit" x="${hitBounds[index].start}" y="${pad.t}" width="${hitBounds[index].end - hitBounds[index].start}" height="${H - pad.t - pad.b}"/><line class="candle-wick ${candleClass}" x1="${candle.x}" y1="${candle.highY}" x2="${candle.x}" y2="${candle.lowY}"/><rect class="candle-body ${candleClass}" x="${candle.x - candle.bodyWidth / 2}" y="${candle.bodyY}" width="${candle.bodyWidth}" height="${candle.bodyHeight}" rx="1"><title>${esc(day.date)}｜开 ¥${money(day.open)}｜高 ¥${money(day.high)}｜低 ¥${money(day.low)}｜收 ¥${money(day.close)}</title></rect></g>`;
+        return `<g class="chart-target" data-index="${index}" role="img" tabindex="0" aria-label="${esc(`${day.date}，开盘 ${money(day.open)} 元，最高 ${money(day.high)} 元，最低 ${money(day.low)} 元，收盘 ${money(day.close)} 元，当日净盈亏 ${money(day.dayPnl)} 元，共 ${day.tradeCount} 笔交易`)}"><rect class="chart-hit" x="${hitBounds[index].start}" y="${pad.t}" width="${hitBounds[index].end - hitBounds[index].start}" height="${H - pad.t - pad.b}"/><line class="candle-wick ${candleClass}" x1="${candle.x}" y1="${candle.highY}" x2="${candle.x}" y2="${candle.lowY}"/><rect class="candle-body ${candleClass}" x="${candle.x - candle.bodyWidth / 2}" y="${candle.bodyY}" width="${candle.bodyWidth}" height="${candle.bodyHeight}" rx="1"><title>${esc(day.date)}｜开 ¥${money(day.open)}｜高 ¥${money(day.high)}｜低 ¥${money(day.low)}｜收 ¥${money(day.close)}</title></rect></g>`;
       }).join("")}
       <line class="equity-guide" x1="0" y1="${pad.t}" x2="0" y2="${H - pad.b}"/>
       ${labelIndices.map((index) => `<text class="axis-label equity-date-label" x="${points[index][0]}" y="${H - 12}" text-anchor="middle">${esc(String(values[index].date).replace(/^\d{4}[/-]/, ""))}</text>`).join("")}`;
-    svg.setAttribute("aria-label", `累计已实现盈亏日K图，当前显示 ${values.length} 个交易日，共 ${model.totalDays} 个交易日。使用左右方向键切换交易日，按回车打开当日最后一笔交易。`);
+    svg.setAttribute("aria-label", `累计已实现盈亏日K图，当前显示 ${values.length} 个交易日，共 ${model.totalDays} 个交易日。悬停或使用左右方向键查看交易日数据。`);
     const guide = svg.querySelector(".equity-guide");
     const targets = [...svg.querySelectorAll(".chart-target")];
-    let activeIndex = -1;
     let dragState = null;
 
     const activatePoint = (index, { focus = false } = {}) => {
       if (index < 0 || index >= values.length) return;
-      activeIndex = index;
       const point = values[index];
       const [pointX] = points[index];
       targets.forEach((target, targetIndex) => target.classList.toggle("is-active", targetIndex === index));
@@ -414,7 +410,6 @@ import { buildEvidenceCarouselState } from "./evidence-carousel.js?v=20260721-1"
       guide.setAttribute("x1", pointX);
       guide.setAttribute("x2", pointX);
       $("equityTooltipId").textContent = point.date;
-      $("equityTooltipDate").textContent = "累计已实现盈亏日 K";
       $("equityTooltipSummary").textContent = point.summary;
       for (const [id, value] of [["equityTooltipOpenValue", point.open], ["equityTooltipHigh", point.high], ["equityTooltipLow", point.low], ["equityTooltipClose", point.close]]) {
         $(id).textContent = `¥${money(value)}`;
@@ -422,15 +417,8 @@ import { buildEvidenceCarouselState } from "./evidence-carousel.js?v=20260721-1"
       }
       $("equityTooltipDayPnl").textContent = `¥${money(point.dayPnl)}`;
       $("equityTooltipDayPnl").className = signedClass(point.dayPnl);
-      openButton.setAttribute("aria-label", `打开 ${point.date} 的最后一笔交易`);
       tooltip.hidden = false;
       if (focus) targets[index].focus();
-    };
-    const openTradeAt = (index, trigger) => {
-      const trade = trades[values[index]?.lastTradeIndex];
-      if (!trade) return;
-      workspaceTrigger = trigger || targets[index];
-      openTradeWorkspace(trade);
     };
     const moveFocus = (fromIndex, direction) => activatePoint(Math.max(0, Math.min(values.length - 1, fromIndex + direction)), { focus: true });
     const shiftWindow = (direction, amount = Math.max(1, Math.floor(values.length * .8))) => {
@@ -444,16 +432,12 @@ import { buildEvidenceCarouselState } from "./evidence-carousel.js?v=20260721-1"
       target.addEventListener("pointerup", (event) => {
         if (dragState?.moved) return;
         if (event.pointerType === "touch") { event.preventDefault(); activatePoint(index); return; }
-        openTradeAt(index, target);
       });
       target.addEventListener("focus", () => activatePoint(index));
       target.addEventListener("keydown", (event) => {
         if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
           event.preventDefault();
           moveFocus(index, event.key === "ArrowLeft" ? -1 : 1);
-        } else if (event.key === "Enter" || event.key === " ") {
-          event.preventDefault();
-          openTradeAt(index, target);
         } else if (event.key === "Escape") {
           event.preventDefault();
           activatePoint(values.length - 1);
@@ -490,7 +474,6 @@ import { buildEvidenceCarouselState } from "./evidence-carousel.js?v=20260721-1"
     viewport.onpointercancel = (event) => finishDrag(event, true);
     shell.onmouseleave = () => { if (!shell.contains(document.activeElement)) activatePoint(values.length - 1); };
     shell.onfocusout = () => requestAnimationFrame(() => { if (!shell.contains(document.activeElement)) activatePoint(values.length - 1); });
-    openButton.onclick = () => openTradeAt(activeIndex, openButton);
     earlierButton.onclick = () => shiftWindow(-1);
     laterButton.onclick = () => shiftWindow(1);
     activatePoint(values.length - 1);
