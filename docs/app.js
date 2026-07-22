@@ -415,8 +415,6 @@ import { clearAttachmentCache, loadAttachmentBlob, removeAttachmentFromCache } f
         $(id).textContent = `¥${money(value)}`;
         $(id).className = signedClass(value);
       }
-      $("equityTooltipDayPnl").textContent = `¥${money(point.dayPnl)}`;
-      $("equityTooltipDayPnl").className = signedClass(point.dayPnl);
       tooltip.hidden = false;
       if (focus) targets[index].focus();
     };
