@@ -1,4 +1,4 @@
-import { buildEquityChartModel, tooltipPlacement } from "./equity-chart.js?v=20260722-1";
+import { buildEquityChartModel, chartWidthForRange, resolveChartRange } from "./equity-chart.js?v=20260722-2";
 import { buildEvidenceCarouselState } from "./evidence-carousel.js?v=20260721-1";
 
 (() => {
@@ -23,6 +23,11 @@ import { buildEvidenceCarouselState } from "./evidence-carousel.js?v=20260721-1"
   let workspaceTrigger = null;
   let evidenceCarouselIndex = 0;
   let evidenceCarouselTradeId = "";
+  let equityChartRange = "short";
+  let equityChartWindowEnd = null;
+  let equityChartTradeSignature = "";
+  let equityChartScrollToLatest = false;
+  let equityChartCompact = matchMedia("(max-width: 760px)").matches;
 
   function readToken() {
     try { return localStorage.getItem(TOKEN_KEY) || sessionStorage.getItem(TOKEN_KEY) || ""; }
@@ -330,14 +335,55 @@ import { buildEvidenceCarouselState } from "./evidence-carousel.js?v=20260721-1"
   function renderChart(trades) {
     const svg = $("equityChart");
     const shell = $("equityChartShell");
+    const viewport = $("equityChartViewport");
     const tooltip = $("equityTooltip");
     const openButton = $("equityTooltipOpen");
-    const model = buildEquityChartModel(trades);
-    const { width: W, height: H, pad, values, points, candles, hitBounds, ticks } = model;
+    const earlierButton = $("equityEarlier");
+    const laterButton = $("equityLater");
+    const rangeButtons = [...document.querySelectorAll("[data-chart-range]")];
+    const compact = matchMedia("(max-width: 760px)").matches;
+    const totalDays = new Set(trades.map((trade) => trade.dateLabel || trade.date || "日期待确认")).size;
+    const tradeSignature = trades.map((trade) => `${trade.tradeId}:${trade.dateLabel || trade.date || ""}`).join("|");
+    if (tradeSignature !== equityChartTradeSignature) {
+      equityChartTradeSignature = tradeSignature;
+      equityChartWindowEnd = null;
+      equityChartScrollToLatest = equityChartRange === "all";
+    }
+    const visibleCount = resolveChartRange(equityChartRange, compact);
+    const chartWidth = chartWidthForRange(totalDays, equityChartRange);
+    const model = buildEquityChartModel(trades, {
+      width: chartWidth,
+      visibleCount,
+      windowEnd: equityChartWindowEnd,
+      pad: { t: compact ? 24 : 82 },
+    });
+    const { width: W, height: H, pad, values, points, candles, hitBounds, ticks, labelIndices } = model;
+    equityChartWindowEnd = model.visibleEnd;
+    svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+    svg.style.setProperty("--equity-chart-width", W > 900 ? `${W}px` : "100%");
     tooltip.hidden = true;
     shell.onmouseleave = null;
     shell.onfocusout = null;
+    viewport.onpointerdown = null;
+    viewport.onpointermove = null;
+    viewport.onpointerup = null;
+    viewport.onpointercancel = null;
     openButton.onclick = null;
+    rangeButtons.forEach((button) => {
+      const mode = button.dataset.chartRange;
+      if (mode === "short") button.textContent = compact ? "近15日" : "近30日";
+      if (mode === "long") button.textContent = compact ? "近30日" : "近60日";
+      button.setAttribute("aria-pressed", String(mode === equityChartRange));
+      button.onclick = () => {
+        if (equityChartRange === mode) return;
+        equityChartRange = mode;
+        equityChartWindowEnd = null;
+        equityChartScrollToLatest = mode === "all";
+        renderChart(trades);
+      };
+    });
+    earlierButton.disabled = equityChartRange === "all" || !model.canMoveEarlier;
+    laterButton.disabled = equityChartRange === "all" || !model.canMoveLater;
     if (!trades.length) {
       svg.innerHTML = `<text x="450" y="140" text-anchor="middle" class="axis-label">暂无交易</text>`;
       $("chartCaption").textContent = "0 个交易日";
@@ -351,24 +397,18 @@ import { buildEvidenceCarouselState } from "./evidence-carousel.js?v=20260721-1"
         return `<g class="chart-target" data-index="${index}" role="button" tabindex="0" aria-label="${esc(`${day.date}，开盘 ${money(day.open)} 元，最高 ${money(day.high)} 元，最低 ${money(day.low)} 元，收盘 ${money(day.close)} 元，当日净盈亏 ${money(day.dayPnl)} 元，共 ${day.tradeCount} 笔交易`)}"><rect class="chart-hit" x="${hitBounds[index].start}" y="${pad.t}" width="${hitBounds[index].end - hitBounds[index].start}" height="${H - pad.t - pad.b}"/><line class="candle-wick ${candleClass}" x1="${candle.x}" y1="${candle.highY}" x2="${candle.x}" y2="${candle.lowY}"/><rect class="candle-body ${candleClass}" x="${candle.x - candle.bodyWidth / 2}" y="${candle.bodyY}" width="${candle.bodyWidth}" height="${candle.bodyHeight}" rx="1"><title>${esc(day.date)}｜开 ¥${money(day.open)}｜高 ¥${money(day.high)}｜低 ¥${money(day.low)}｜收 ¥${money(day.close)}</title></rect></g>`;
       }).join("")}
       <line class="equity-guide" x1="0" y1="${pad.t}" x2="0" y2="${H - pad.b}"/>
-      ${values.map((day, index) => values.length <= 12 ? `<text class="axis-label equity-date-label" x="${points[index][0]}" y="${H - 12}" text-anchor="middle">${esc(String(day.date).replace(/^\d{4}[/-]/, ""))}</text>` : "").join("")}`;
-    svg.setAttribute("aria-label", `累计已实现盈亏日K图，共 ${values.length} 个交易日。使用左右方向键切换交易日，按回车打开当日最后一笔交易。`);
+      ${labelIndices.map((index) => `<text class="axis-label equity-date-label" x="${points[index][0]}" y="${H - 12}" text-anchor="middle">${esc(String(values[index].date).replace(/^\d{4}[/-]/, ""))}</text>`).join("")}`;
+    svg.setAttribute("aria-label", `累计已实现盈亏日K图，当前显示 ${values.length} 个交易日，共 ${model.totalDays} 个交易日。使用左右方向键切换交易日，按回车打开当日最后一笔交易。`);
     const guide = svg.querySelector(".equity-guide");
     const targets = [...svg.querySelectorAll(".chart-target")];
     let activeIndex = -1;
+    let dragState = null;
 
-    const hideTooltip = () => {
-      activeIndex = -1;
-      tooltip.hidden = true;
-      guide.classList.remove("is-visible");
-      targets.forEach((target) => target.classList.remove("is-active"));
-    };
     const activatePoint = (index, { focus = false } = {}) => {
       if (index < 0 || index >= values.length) return;
       activeIndex = index;
       const point = values[index];
-      const [pointX, pointY] = points[index];
-      const placement = tooltipPlacement(points[index], W, H);
+      const [pointX] = points[index];
       targets.forEach((target, targetIndex) => target.classList.toggle("is-active", targetIndex === index));
       guide.classList.add("is-visible");
       guide.setAttribute("x1", pointX);
@@ -383,10 +423,6 @@ import { buildEvidenceCarouselState } from "./evidence-carousel.js?v=20260721-1"
       $("equityTooltipDayPnl").textContent = `¥${money(point.dayPnl)}`;
       $("equityTooltipDayPnl").className = signedClass(point.dayPnl);
       openButton.setAttribute("aria-label", `打开 ${point.date} 的最后一笔交易`);
-      tooltip.dataset.horizontal = placement.horizontal;
-      tooltip.dataset.vertical = placement.vertical;
-      tooltip.style.left = `${pointX / W * 100}%`;
-      tooltip.style.top = `${pointY / H * 100}%`;
       tooltip.hidden = false;
       if (focus) targets[index].focus();
     };
@@ -397,10 +433,16 @@ import { buildEvidenceCarouselState } from "./evidence-carousel.js?v=20260721-1"
       openTradeWorkspace(trade);
     };
     const moveFocus = (fromIndex, direction) => activatePoint(Math.max(0, Math.min(values.length - 1, fromIndex + direction)), { focus: true });
+    const shiftWindow = (direction, amount = Math.max(1, Math.floor(values.length * .8))) => {
+      if (equityChartRange === "all") return;
+      equityChartWindowEnd = Math.max(values.length, Math.min(model.totalDays, model.visibleEnd + direction * amount));
+      renderChart(trades);
+    };
 
     targets.forEach((target, index) => {
       target.addEventListener("mouseenter", () => activatePoint(index));
       target.addEventListener("pointerup", (event) => {
+        if (dragState?.moved) return;
         if (event.pointerType === "touch") { event.preventDefault(); activatePoint(index); return; }
         openTradeAt(index, target);
       });
@@ -414,15 +456,54 @@ import { buildEvidenceCarouselState } from "./evidence-carousel.js?v=20260721-1"
           openTradeAt(index, target);
         } else if (event.key === "Escape") {
           event.preventDefault();
-          hideTooltip();
+          activatePoint(values.length - 1);
           target.blur();
         }
       });
     });
-    shell.onmouseleave = () => { if (!shell.contains(document.activeElement)) hideTooltip(); };
-    shell.onfocusout = () => requestAnimationFrame(() => { if (!shell.contains(document.activeElement)) hideTooltip(); });
+    viewport.onpointerdown = (event) => {
+      if (event.button !== 0) return;
+      const captureTarget = event.target.closest?.(".chart-target") || viewport;
+      dragState = { pointerId: event.pointerId, captureTarget, startX: event.clientX, startScrollLeft: viewport.scrollLeft, moved: false };
+      captureTarget.setPointerCapture?.(event.pointerId);
+    };
+    viewport.onpointermove = (event) => {
+      if (!dragState || dragState.pointerId !== event.pointerId) return;
+      const deltaX = event.clientX - dragState.startX;
+      if (Math.abs(deltaX) < 6) return;
+      dragState.moved = true;
+      viewport.classList.add("is-dragging");
+      if (equityChartRange === "all") viewport.scrollLeft = dragState.startScrollLeft - deltaX;
+    };
+    const finishDrag = (event, cancelled = false) => {
+      if (!dragState || dragState.pointerId !== event.pointerId) return;
+      const completedDrag = dragState;
+      dragState = null;
+      viewport.classList.remove("is-dragging");
+      completedDrag.captureTarget.releasePointerCapture?.(event.pointerId);
+      if (cancelled || !completedDrag.moved || equityChartRange === "all") return;
+      const slotPixels = Math.max(12, viewport.clientWidth / Math.max(1, model.layoutSlotCount));
+      const dayShift = Math.max(1, Math.round(Math.abs(event.clientX - completedDrag.startX) / slotPixels));
+      shiftWindow(event.clientX > completedDrag.startX ? -1 : 1, dayShift);
+    };
+    viewport.onpointerup = (event) => finishDrag(event);
+    viewport.onpointercancel = (event) => finishDrag(event, true);
+    shell.onmouseleave = () => { if (!shell.contains(document.activeElement)) activatePoint(values.length - 1); };
+    shell.onfocusout = () => requestAnimationFrame(() => { if (!shell.contains(document.activeElement)) activatePoint(values.length - 1); });
     openButton.onclick = () => openTradeAt(activeIndex, openButton);
-    $("chartCaption").textContent = `${values.length} 个交易日 · ${trades.length} 笔完整交易 · 悬停或点击查看`;
+    earlierButton.onclick = () => shiftWindow(-1);
+    laterButton.onclick = () => shiftWindow(1);
+    activatePoint(values.length - 1);
+    const visibleText = values.length === model.totalDays
+      ? `${model.totalDays} 个交易日`
+      : `${model.visibleStart + 1}–${model.visibleEnd} / ${model.totalDays} 个交易日`;
+    $("chartCaption").textContent = `${visibleText} · ${trades.length} 笔完整交易 · 拖动查看历史`;
+    if (equityChartRange === "all" && equityChartScrollToLatest) {
+      equityChartScrollToLatest = false;
+      requestAnimationFrame(() => { viewport.scrollLeft = viewport.scrollWidth; });
+    } else if (equityChartRange !== "all") {
+      viewport.scrollLeft = 0;
+    }
   }
 
   function aggregate(trades, key) {
@@ -783,6 +864,13 @@ import { buildEvidenceCarouselState } from "./evidence-carousel.js?v=20260721-1"
     if (event.key !== TOKEN_KEY) return;
     token = event.newValue || "";
     if (!token) setAuthVisible(true);
+  });
+  window.addEventListener("resize", () => {
+    const nextCompact = matchMedia("(max-width: 760px)").matches;
+    if (nextCompact === equityChartCompact) return;
+    equityChartCompact = nextCompact;
+    equityChartWindowEnd = null;
+    if (dashboard) renderChart(selectedTrades());
   });
   window.addEventListener("popstate", () => {
     const trade = dashboard?.trades?.find((row) => row.tradeId === tradeRouteId());
