@@ -12,7 +12,7 @@
   <link rel="apple-touch-icon" sizes="180x180" href="./apple-touch-icon.png?v=20260720-1">
   <link rel="manifest" href="./site.webmanifest">
   <link rel="stylesheet" href="./styles.css?v=20260720-5">
-  <link rel="stylesheet" href="./readability.css?v=20260722-4">
+  <link rel="stylesheet" href="./readability.css?v=20260722-5">
 </head>
 <body>
   <div class="grain" aria-hidden="true"></div>
@@ -75,7 +75,7 @@
       <section class="hero-grid">
         <article class="panel chart-panel">
           <div class="panel-head chart-panel-head">
-            <div><small>REALIZED EQUITY · DAILY OHLC</small><h2>累计净盈亏日 K</h2></div>
+            <div><small>DAILY REALIZED P&amp;L · OHLC</small><h2>当日净盈亏日 K</h2></div>
             <div class="chart-head-tools">
               <span id="chartCaption"></span>
               <div class="equity-toolbar">
@@ -93,14 +93,14 @@
           </div>
           <div class="equity-chart-shell" id="equityChartShell">
             <div class="equity-chart-viewport" id="equityChartViewport">
-              <svg id="equityChart" viewBox="0 0 900 280" preserveAspectRatio="none" role="group" aria-label="累计已实现盈亏日K图"></svg>
+              <svg id="equityChart" viewBox="0 0 900 280" preserveAspectRatio="none" role="group" aria-label="当日已实现盈亏日K图"></svg>
             </div>
             <div class="equity-tooltip" id="equityTooltip" role="group" aria-live="polite" aria-label="交易日K线详情" hidden>
               <div class="equity-tooltip-head"><b id="equityTooltipId"></b><span id="equityTooltipSummary"></span></div>
               <dl class="equity-tooltip-values">
                 <div><dt>开盘</dt><dd id="equityTooltipOpenValue"></dd></div>
-                <div><dt>单笔最高</dt><dd id="equityTooltipHigh"></dd></div>
-                <div><dt>单笔最低</dt><dd id="equityTooltipLow"></dd></div>
+                <div><dt>最高</dt><dd id="equityTooltipHigh"></dd></div>
+                <div><dt>最低</dt><dd id="equityTooltipLow"></dd></div>
                 <div><dt>收盘</dt><dd id="equityTooltipClose"></dd></div>
                 <div class="equity-tooltip-change"><dt>当日盈亏</dt><dd id="equityTooltipDayPnl"></dd></div>
               </dl>
@@ -168,6 +168,6 @@
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
   <script src="./config.js"></script>
-  <script type="module" src="./app.js?v=20260722-5"></script>
+  <script type="module" src="./app.js?v=20260722-6"></script>
 </body>
 </html>

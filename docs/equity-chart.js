@@ -32,6 +32,14 @@ function buildLabelIndices(values, slotWidth) {
   return [...indices].sort((a, b) => a - b);
 }
 
+function tradeOrderValue(trade, fallbackIndex) {
+  const match = String(trade.exitTime || trade.entryTime || "").match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?/);
+  if (!match) return fallbackIndex;
+  const hour = Number(match[1]);
+  const shiftedHour = hour < 18 ? hour + 24 : hour;
+  return shiftedHour * 3600 + Number(match[2]) * 60 + Number(match[3] || 0);
+}
+
 export function buildEquityChartModel(trades, options = {}) {
   const width = options.width || DEFAULT_WIDTH;
   const height = options.height || DEFAULT_HEIGHT;
@@ -49,23 +57,27 @@ export function buildEquityChartModel(trades, options = {}) {
     dayByDate.get(date).trades.push({ trade, tradeIndex });
   });
 
-  let cumulative = 0;
   const allValues = groupedTrades.map((group) => {
-    const open = cumulative;
+    const orderedTrades = [...group.trades].sort((a, b) => {
+      const difference = tradeOrderValue(a.trade, a.tradeIndex) - tradeOrderValue(b.trade, b.tradeIndex);
+      return difference || a.tradeIndex - b.tradeIndex;
+    });
+    const open = 0;
     let dayPnl = 0;
-    let high = -Infinity;
-    let low = Infinity;
+    let high = open;
+    let low = open;
+    const pnlPath = [open];
 
-    group.trades.forEach(({ trade }) => {
+    orderedTrades.forEach(({ trade }) => {
       const pnl = Number(trade.netPnl) || 0;
       dayPnl += pnl;
-      cumulative += pnl;
-      high = Math.max(high, pnl);
-      low = Math.min(low, pnl);
+      pnlPath.push(dayPnl);
+      high = Math.max(high, dayPnl);
+      low = Math.min(low, dayPnl);
     });
 
-    const tradeIds = group.trades.map(({ trade }) => trade.tradeId);
-    const lastTrade = group.trades.at(-1);
+    const tradeIds = orderedTrades.map(({ trade }) => trade.tradeId);
+    const lastTrade = orderedTrades.at(-1);
     return {
       id: group.date,
       date: group.date,
@@ -73,14 +85,15 @@ export function buildEquityChartModel(trades, options = {}) {
       open,
       high,
       low,
-      close: cumulative,
+      close: dayPnl,
       dayPnl,
       tradeCount: group.trades.length,
       tradeIds,
       lastTradeId: lastTrade?.trade.tradeId || null,
       lastTradeIndex: lastTrade?.tradeIndex ?? -1,
+      pnlPath,
       pnl: dayPnl,
-      value: cumulative,
+      value: dayPnl,
     };
   });
 
