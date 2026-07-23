@@ -3,7 +3,6 @@ const DEFAULT_HEIGHT = 280;
 const DEFAULT_PAD = Object.freeze({ l: 55, r: 24, t: 24, b: 36 });
 const MIN_SPARSE_SLOTS = 7;
 const MIN_ALL_SLOT_WIDTH = 26;
-const roundMoney = (value) => Math.round((value + Number.EPSILON) * 100) / 100;
 
 export function resolveChartRange(mode, compact = false) {
   if (mode === "all") return Infinity;
@@ -33,14 +32,6 @@ function buildLabelIndices(values, slotWidth) {
   return [...indices].sort((a, b) => a - b);
 }
 
-function tradeOrderValue(trade, fallbackIndex) {
-  const match = String(trade.exitTime || trade.entryTime || "").match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?/);
-  if (!match) return fallbackIndex;
-  const hour = Number(match[1]);
-  const shiftedHour = hour < 18 ? hour + 24 : hour;
-  return shiftedHour * 3600 + Number(match[2]) * 60 + Number(match[3] || 0);
-}
-
 export function buildEquityChartModel(trades, options = {}) {
   const width = options.width || DEFAULT_WIDTH;
   const height = options.height || DEFAULT_HEIGHT;
@@ -60,27 +51,21 @@ export function buildEquityChartModel(trades, options = {}) {
 
   let cumulative = 0;
   const allValues = groupedTrades.map((group) => {
-    const orderedTrades = [...group.trades].sort((a, b) => {
-      const difference = tradeOrderValue(a.trade, a.tradeIndex) - tradeOrderValue(b.trade, b.tradeIndex);
-      return difference || a.tradeIndex - b.tradeIndex;
-    });
     const open = cumulative;
-    let dayPnl = 0;
     let high = open;
     let low = open;
-    const pnlPath = [open];
+    let dayPnl = 0;
 
-    orderedTrades.forEach(({ trade }) => {
+    group.trades.forEach(({ trade }) => {
       const pnl = Number(trade.netPnl) || 0;
-      dayPnl = roundMoney(dayPnl + pnl);
-      cumulative = roundMoney(cumulative + pnl);
-      pnlPath.push(cumulative);
+      dayPnl += pnl;
+      cumulative += pnl;
       high = Math.max(high, cumulative);
       low = Math.min(low, cumulative);
     });
 
-    const tradeIds = orderedTrades.map(({ trade }) => trade.tradeId);
-    const lastTrade = orderedTrades.at(-1);
+    const tradeIds = group.trades.map(({ trade }) => trade.tradeId);
+    const lastTrade = group.trades.at(-1);
     return {
       id: group.date,
       date: group.date,
@@ -94,7 +79,6 @@ export function buildEquityChartModel(trades, options = {}) {
       tradeIds,
       lastTradeId: lastTrade?.trade.tradeId || null,
       lastTradeIndex: lastTrade?.tradeIndex ?? -1,
-      pnlPath,
       pnl: dayPnl,
       value: cumulative,
     };
@@ -118,8 +102,8 @@ export function buildEquityChartModel(trades, options = {}) {
   const visibleStart = Math.max(0, visibleEnd - visibleCount);
   const values = allValues.slice(visibleStart, visibleEnd);
 
-  const observedMin = Math.min(0, ...values.flatMap((day) => [day.open, day.high, day.low, day.close]));
-  const observedMax = Math.max(0, ...values.flatMap((day) => [day.open, day.high, day.low, day.close]));
+  const observedMin = Math.min(0, ...values.map((day) => day.low));
+  const observedMax = Math.max(0, ...values.map((day) => day.high));
   const observedSpan = Math.max(1, observedMax - observedMin);
   const domainMin = observedMin - observedSpan * .08;
   const domainMax = observedMax + observedSpan * .08;

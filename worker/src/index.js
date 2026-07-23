@@ -1,3 +1,5 @@
+import { isAllowedGithubLogin } from "./access.js";
+
 const encoder = new TextEncoder();
 const SESSION_TTL_SECONDS = 60 * 60 * 24 * 30;
 const MAX_ATTACHMENT_BYTES = 1_700_000;
@@ -64,7 +66,7 @@ async function verifyToken(request, env) {
   if (!equalSafe(signature, await hmac(value, env.JWT_SECRET))) return null;
   try {
     const claims = JSON.parse(new TextDecoder().decode(decode64url(payload)));
-    if (claims.exp < Math.floor(Date.now() / 1000) || claims.login.toLowerCase() !== env.ALLOWED_GITHUB_LOGIN.toLowerCase()) return null;
+    if (claims.exp < Math.floor(Date.now() / 1000) || !isAllowedGithubLogin(claims.login, env)) return null;
     return claims;
   } catch { return null; }
 }
@@ -84,7 +86,7 @@ function attachmentHeaders(request, env, mimeType, byteSize) {
   return {
     "Content-Type": mimeType,
     "Content-Length": String(byteSize),
-    "Cache-Control": "private, max-age=31536000, immutable",
+    "Cache-Control": "private, no-store",
     "X-Content-Type-Options": "nosniff",
     ...corsHeaders(request, env),
   };
@@ -231,7 +233,7 @@ async function handleOAuthCallback(request, env) {
       headers: { Authorization: `Bearer ${tokenData.access_token}`, Accept: "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28", "User-Agent": "trade-review-cloud" },
     });
     const user = await userResponse.json();
-    if (!user.login || user.login.toLowerCase() !== env.ALLOWED_GITHUB_LOGIN.toLowerCase()) return new Response("此 GitHub 账号无权访问交易数据。", { status: 403 });
+    if (!isAllowedGithubLogin(user.login, env)) return new Response("此 GitHub 账号无权访问交易数据。", { status: 403 });
     const token = await issueToken(user, env.JWT_SECRET);
     await env.DB.batch([
       env.DB.prepare(

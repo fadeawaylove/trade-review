@@ -14,7 +14,7 @@
 
 - `docs/` 只包含静态界面，不包含交易记录；
 - 交易数据存储在 Cloudflare D1；
-- Worker 使用 GitHub OAuth 验证身份，并只允许 `fadeawaylove`；
+- Worker 使用 GitHub OAuth 验证身份，并只允许配置的 GitHub 账号白名单；
 - OAuth Client Secret 与 JWT Secret 仅存储为 Cloudflare Worker secrets；
 - 本仓库不得提交 seed SQL、截图、本地 JSON、Excel 或嵌入交易数据的 HTML。
 

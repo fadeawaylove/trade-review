@@ -8,6 +8,7 @@
     "ALLOWED_ORIGIN": "https://fadeawaylove.github.io",
     "PAGES_URL": "https://fadeawaylove.github.io/trade-review/",
     "ALLOWED_GITHUB_LOGIN": "fadeawaylove",
+    "ALLOWED_GITHUB_LOGINS": "fadeawaylove,chengdadawang",
     "GITHUB_CLIENT_ID": "Ov23liJY733CdrLuZ5b4"
   },
   "d1_databases": [
