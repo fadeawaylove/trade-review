@@ -1,5 +1,6 @@
-import { buildEquityChartModel, chartWidthForRange, resolveChartRange } from "./equity-chart.js?v=20260722-2";
+import { buildEquityChartModel, chartWidthForRange, resolveChartRange } from "./equity-chart.js?v=20260723-1";
 import { buildEvidenceCarouselState } from "./evidence-carousel.js?v=20260721-1";
+import { clearAttachmentCache, loadAttachmentBlob, removeAttachmentFromCache } from "./attachment-cache.js?v=20260722-1";
 
 (() => {
   const CONFIG = window.TRADE_CONFIG || {};
@@ -154,9 +155,8 @@ import { buildEvidenceCarouselState } from "./evidence-carousel.js?v=20260721-1"
       const host = document.querySelector(`[data-attachment-id="${attachment.id}"] .evidence-preview`);
       if (!host) continue;
       try {
-        const response = await fetch(`${API}/api/attachments/${encodeURIComponent(attachment.id)}`, { headers: { Authorization: `Bearer ${token}` } });
-        if (!response.ok) throw new Error("图片读取失败");
-        const url = URL.createObjectURL(await response.blob());
+        const blob = await loadAttachmentBlob({ apiBase: API, attachmentId: attachment.id, token });
+        const url = URL.createObjectURL(blob);
         attachmentObjectUrls.push(url);
         lightboxItems.push({ url, attachment });
         const image = document.createElement("img");
@@ -387,7 +387,7 @@ import { buildEvidenceCarouselState } from "./evidence-carousel.js?v=20260721-1"
       $("chartCaption").textContent = "0 个交易日";
       return;
     }
-    svg.innerHTML = `<title>累计已实现盈亏日K图</title><desc>每根K线代表一个交易日；开盘为前日收盘，最高和最低为当日逐笔结算后的累计盈亏极值，收盘为当日最终累计盈亏。悬停或使用左右方向键查看交易日数据。</desc>
+    svg.innerHTML = `<title>累计已实现盈亏日K图</title><desc>每根K线代表一个交易日；开盘承接前一交易日收盘，最高和最低为当天按平仓时间顺序逐笔累加后的累计盈亏极值，收盘为当日结束时的累计净盈亏。悬停或使用左右方向键查看交易日数据。</desc>
       ${ticks.map((value, index) => `<line class="axis" x1="${pad.l}" y1="${points.length ? pad.t + index / 4 * (H - pad.t - pad.b) : 0}" x2="${W - pad.r}" y2="${points.length ? pad.t + index / 4 * (H - pad.t - pad.b) : 0}"/><text class="axis-label" x="${pad.l - 9}" y="${pad.t + index / 4 * (H - pad.t - pad.b) + 3}" text-anchor="end">${Math.round(value)}</text>`).join("")}
       ${candles.map((candle, index) => {
         const day = values[index];
@@ -415,8 +415,6 @@ import { buildEvidenceCarouselState } from "./evidence-carousel.js?v=20260721-1"
         $(id).textContent = `¥${money(value)}`;
         $(id).className = signedClass(value);
       }
-      $("equityTooltipDayPnl").textContent = `¥${money(point.dayPnl)}`;
-      $("equityTooltipDayPnl").className = signedClass(point.dayPnl);
       tooltip.hidden = false;
       if (focus) targets[index].focus();
     };
@@ -712,7 +710,9 @@ import { buildEvidenceCarouselState } from "./evidence-carousel.js?v=20260721-1"
         if (!armed) { armed = true; button.textContent = "确认删除"; return; }
         button.disabled = true;
         try {
-          await apiFetch(`/api/attachments/${encodeURIComponent(button.dataset.deleteAttachment)}`, { method: "DELETE" });
+          const attachmentId = button.dataset.deleteAttachment;
+          await apiFetch(`/api/attachments/${encodeURIComponent(attachmentId)}`, { method: "DELETE" });
+          await removeAttachmentFromCache(API, attachmentId);
           await refreshDashboard();
           openTradeWorkspace(dashboard.trades.find((row) => row.tradeId === trade.tradeId), { historyMode: "none", scrollTop: workspace.scrollTop });
           notify("复盘图已删除");
@@ -799,7 +799,7 @@ import { buildEvidenceCarouselState } from "./evidence-carousel.js?v=20260721-1"
   }
 
   $("loginButton").addEventListener("click", login);
-  $("logoutButton").addEventListener("click", () => { clearToken(); setAuthVisible(true); });
+  $("logoutButton").addEventListener("click", () => { clearToken(); clearAttachmentCache(); setAuthVisible(true); });
   $("trashButton").addEventListener("click", openTrashDrawer);
   $("exportButton").addEventListener("click", exportBackup);
   Object.values(selects).forEach((select) => select.addEventListener("change", render));
