@@ -1,4 +1,4 @@
-import { isAllowedGithubLogin } from "./access.js";
+import { githubAccessRole, isAllowedGithubLogin } from "./access.js";
 
 const encoder = new TextEncoder();
 const SESSION_TTL_SECONDS = 60 * 60 * 24 * 30;
@@ -66,8 +66,9 @@ async function verifyToken(request, env) {
   if (!equalSafe(signature, await hmac(value, env.JWT_SECRET))) return null;
   try {
     const claims = JSON.parse(new TextDecoder().decode(decode64url(payload)));
-    if (claims.exp < Math.floor(Date.now() / 1000) || !isAllowedGithubLogin(claims.login, env)) return null;
-    return claims;
+    const role = githubAccessRole(claims.login, env);
+    if (claims.exp < Math.floor(Date.now() / 1000) || !role) return null;
+    return { ...claims, role };
   } catch { return null; }
 }
 
@@ -257,10 +258,13 @@ export default {
 
     const user = await verifyToken(request, env);
     if (!user) return json(request, env, { error: "请使用 GitHub 登录" }, 401);
-    if (url.pathname === "/api/session" && request.method === "GET") return json(request, env, { user: { login: user.login, name: user.name, avatar: user.avatar } });
+    if (url.pathname === "/api/session" && request.method === "GET") return json(request, env, { user: { login: user.login, name: user.name, avatar: user.avatar, role: user.role } });
     if (url.pathname === "/api/session/refresh" && request.method === "POST") {
       const token = await issueToken(user, env.JWT_SECRET);
       return json(request, env, { token, expiresAt: new Date((Math.floor(Date.now() / 1000) + SESSION_TTL_SECONDS) * 1000).toISOString() });
+    }
+    if (user.role !== "editor" && !["GET", "HEAD"].includes(request.method)) {
+      return json(request, env, { error: "当前账号仅有浏览权限" }, 403);
     }
     if (url.pathname === "/api/dashboard" && request.method === "GET") {
       const dashboard = await loadDashboard(env);

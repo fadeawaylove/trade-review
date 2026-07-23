@@ -1,8 +1,4 @@
-export function allowedGithubLogins(env = {}) {
-  const values = [
-    env.ALLOWED_GITHUB_LOGIN,
-    env.ALLOWED_GITHUB_LOGINS,
-  ];
+function normalizedLoginSet(values) {
   return new Set(
     values
       .flatMap((value) => String(value || "").split(/[,\s]+/))
@@ -11,7 +7,30 @@ export function allowedGithubLogins(env = {}) {
   );
 }
 
-export function isAllowedGithubLogin(login, env) {
+export function allowedGithubLogins(env = {}) {
+  return normalizedLoginSet([
+    env.ALLOWED_GITHUB_LOGIN,
+    env.EDITOR_GITHUB_LOGINS,
+    env.ALLOWED_GITHUB_LOGINS,
+    env.READ_ONLY_GITHUB_LOGINS,
+  ]);
+}
+
+export function githubAccessRole(login, env = {}) {
   const normalized = String(login || "").trim().toLowerCase();
-  return Boolean(normalized) && allowedGithubLogins(env).has(normalized);
+  if (!normalized) return null;
+  const editors = normalizedLoginSet([
+    env.ALLOWED_GITHUB_LOGIN,
+    env.EDITOR_GITHUB_LOGINS,
+  ]);
+  if (editors.has(normalized)) return "editor";
+  const viewers = normalizedLoginSet([
+    env.ALLOWED_GITHUB_LOGINS,
+    env.READ_ONLY_GITHUB_LOGINS,
+  ]);
+  return viewers.has(normalized) ? "viewer" : null;
+}
+
+export function isAllowedGithubLogin(login, env) {
+  return githubAccessRole(login, env) !== null;
 }
