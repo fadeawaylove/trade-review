@@ -411,7 +411,7 @@ import { clearAttachmentCache, loadAttachmentBlob, removeAttachmentFromCache } f
       guide.setAttribute("x2", pointX);
       $("equityTooltipId").textContent = point.date;
       $("equityTooltipSummary").textContent = point.summary;
-      for (const [id, value] of [["equityTooltipOpenValue", point.open], ["equityTooltipHigh", point.high], ["equityTooltipLow", point.low], ["equityTooltipClose", point.close]]) {
+      for (const [id, value] of [["equityTooltipOpenValue", point.open], ["equityTooltipHigh", point.high], ["equityTooltipLow", point.low], ["equityTooltipClose", point.close], ["equityTooltipPnl", point.dayPnl]]) {
         $(id).textContent = `¥${money(value)}`;
         $(id).className = signedClass(value);
       }
