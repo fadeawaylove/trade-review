@@ -48,7 +48,7 @@ main{padding-top:40px}
 .bars{gap:18px;padding:22px 25px 27px}
 .bar-row{grid-template-columns:110px minmax(0,1fr) 112px;gap:13px;font-size:14px}
 .bar-track{height:9px}
-.table-wrap{max-height:600px}
+.table-wrap{max-height:none;overflow-x:auto;overflow-y:hidden}
 table{font-size:14px}
 th{padding:15px 16px;font-size:13px}
 td{padding:16px;border-top-color:rgba(33,49,68,.11)}
