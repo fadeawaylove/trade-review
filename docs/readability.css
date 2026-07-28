@@ -27,6 +27,13 @@ main{padding-top:40px}
 .kpi-grid b{margin-top:18px;font-size:clamp(30px,2.7vw,42px)}
 .kpi-grid small{margin-top:10px;font-size:13px;line-height:1.5}
 
+@media(min-width:1800px){
+  .kpi-grid{grid-template-columns:repeat(8,minmax(0,1fr));gap:12px}
+  .kpi-grid article{min-width:0;min-height:132px;padding:18px 14px}
+  .kpi-grid b{margin-top:14px;font-size:clamp(23px,1.35vw,30px);white-space:nowrap}
+  .kpi-grid small{margin-top:8px;overflow:hidden;font-size:12px;text-overflow:ellipsis;white-space:nowrap}
+}
+
 .panel-head{padding:24px 25px 0}
 .panel-head small,.panel-head>span{font-size:12px}
 .panel-head h2{font-size:23px}
