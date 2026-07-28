@@ -12,7 +12,7 @@
   <link rel="apple-touch-icon" sizes="180x180" href="./apple-touch-icon.png?v=20260720-1">
   <link rel="manifest" href="./site.webmanifest">
   <link rel="stylesheet" href="./styles.css?v=20260729-2">
-  <link rel="stylesheet" href="./readability.css?v=20260729-1">
+  <link rel="stylesheet" href="./readability.css?v=20260729-2">
 </head>
 <body>
   <div class="grain" aria-hidden="true"></div>
@@ -127,6 +127,14 @@
           <table><thead><tr><th>编号</th><th>日期</th><th>品种 / 合约</th><th>方向</th><th>开仓 → 平仓</th><th>持仓</th><th>手数</th><th>毛盈亏</th><th>手续费</th><th>净盈亏</th><th>结果</th><th>复盘图</th></tr></thead><tbody id="tradeRows"></tbody></table>
           <div class="empty" id="emptyState" hidden>当前筛选条件下没有交易。</div>
         </div>
+        <nav class="ledger-pagination" id="ledgerPagination" aria-label="交易明细分页" hidden>
+          <span class="ledger-range" id="ledgerRange">0 笔</span>
+          <div class="ledger-page-actions">
+            <button id="ledgerPrevious" type="button">← 上一页</button>
+            <strong id="ledgerPageLabel" aria-live="polite">第 1 / 1 页</strong>
+            <button id="ledgerNext" type="button">下一页 →</button>
+          </div>
+        </nav>
       </section>
 
       <footer><span id="footerMeta"></span><span>交易数据受 GitHub 身份验证保护 · Cloudflare D1 持久化</span></footer>
@@ -168,6 +176,6 @@
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
   <script src="./config.js"></script>
-  <script type="module" src="./app.js?v=20260727-1"></script>
+  <script type="module" src="./app.js?v=20260729-1"></script>
 </body>
 </html>

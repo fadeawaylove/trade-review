@@ -56,6 +56,15 @@ td{padding:16px;border-top-color:rgba(33,49,68,.11)}
 .empty{font-size:14px}
 footer{font-size:12px;line-height:1.7}
 
+.ledger-pagination{display:flex;min-height:66px;align-items:center;justify-content:space-between;gap:18px;padding:12px 16px;border-top:1px solid rgba(33,49,68,.11);background:linear-gradient(180deg,rgba(255,253,248,.35),rgba(237,230,216,.4))}
+.ledger-range{color:var(--muted);font:600 13px Bahnschrift,sans-serif;letter-spacing:.03em}
+.ledger-page-actions{display:flex;align-items:center;gap:10px}
+.ledger-page-actions button{min-width:94px;padding:9px 12px;border:1px solid rgba(33,49,68,.16);border-radius:7px;color:#425364;background:rgba(255,255,255,.72);font-size:13px;font-weight:700;cursor:pointer;transition:.16s}
+.ledger-page-actions button:hover:not(:disabled){border-color:rgba(201,67,56,.28);color:var(--profit);background:#fff;transform:translateY(-1px)}
+.ledger-page-actions button:focus-visible{outline:3px solid rgba(185,129,41,.24);outline-offset:2px}
+.ledger-page-actions button:disabled{opacity:.36;cursor:not-allowed}
+.ledger-page-actions strong{min-width:88px;color:#526171;font:700 12px Bahnschrift,sans-serif;text-align:center}
+
 .auth-copy{font-size:16px}
 .auth-button{font-size:15px}
 .auth-trust,.auth-error{font-size:13px;line-height:1.7}
@@ -126,6 +135,10 @@ footer{font-size:12px;line-height:1.7}
   .bar-row{grid-template-columns:88px minmax(0,1fr) 90px;font-size:13px}
   table{font-size:13px}
   th,td{padding:13px}
+  .ledger-pagination{align-items:stretch;flex-direction:column;padding:13px}
+  .ledger-range{text-align:center}
+  .ledger-page-actions{justify-content:center}
+  .ledger-page-actions button{min-width:0;flex:1}
 }
 
 /* Trade detail: keep chart evidence and review context visible together. */

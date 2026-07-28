@@ -1,6 +1,7 @@
 import { buildEquityChartModel, chartWidthForRange, resolveChartRange } from "./equity-chart.js?v=20260723-1";
 import { buildEvidenceCarouselState } from "./evidence-carousel.js?v=20260721-1";
 import { clearAttachmentCache, loadAttachmentBlob, removeAttachmentFromCache } from "./attachment-cache.js?v=20260722-1";
+import { paginateLedgerRows } from "./ledger-pagination.js?v=20260729-1";
 
 (() => {
   const CONFIG = window.TRADE_CONFIG || {};
@@ -29,6 +30,7 @@ import { clearAttachmentCache, loadAttachmentBlob, removeAttachmentFromCache } f
   let equityChartTradeSignature = "";
   let equityChartScrollToLatest = false;
   let equityChartCompact = matchMedia("(max-width: 760px)").matches;
+  let ledgerPage = 1;
 
   function readToken() {
     try { return localStorage.getItem(TOKEN_KEY) || sessionStorage.getItem(TOKEN_KEY) || ""; }
@@ -519,13 +521,22 @@ import { clearAttachmentCache, loadAttachmentBlob, removeAttachmentFromCache } f
 
   function renderRows(trades) {
     const body = $("tradeRows"); body.innerHTML = ""; $("emptyState").hidden = trades.length > 0;
-    [...trades].reverse().forEach((trade) => {
+    const pageModel = paginateLedgerRows([...trades].reverse(), ledgerPage);
+    ledgerPage = pageModel.page;
+    pageModel.items.forEach((trade) => {
       const row = document.createElement("tr"); row.tabIndex = 0;
       row.innerHTML = `<td>${esc(trade.tradeId)}</td><td>${esc(trade.dateLabel)}</td><td>${esc(trade.instrument)} / ${esc(trade.contract)}</td><td><span class="direction-pill ${trade.direction === "多" ? "long" : "short"}">${esc(trade.direction)}</span></td><td>${esc(trade.entryTime)} → ${esc(trade.exitTime)}</td><td>${esc(trade.holdingLabel)}</td><td>${trade.entryQty}</td><td class="${signedClass(trade.grossPnl)}">${money(trade.grossPnl)}</td><td>${money(trade.fees)}</td><td class="${signedClass(trade.netPnl)}">${money(trade.netPnl)}</td><td>${esc(trade.result)}</td><td><span class="evidence-count ${(trade.attachments || []).length ? "has-evidence" : ""}">${(trade.attachments || []).length || "—"}</span></td>`;
       row.addEventListener("click", () => { workspaceTrigger = row; openTradeWorkspace(trade); });
       row.addEventListener("keydown", (event) => { if (event.key === "Enter") { workspaceTrigger = row; openTradeWorkspace(trade); } });
       body.append(row);
     });
+    $("ledgerPagination").hidden = pageModel.totalPages <= 1;
+    $("ledgerRange").textContent = pageModel.totalItems
+      ? `${pageModel.rangeStart}–${pageModel.rangeEnd} / ${pageModel.totalItems} 笔`
+      : "0 笔";
+    $("ledgerPageLabel").textContent = `第 ${pageModel.page} / ${pageModel.totalPages} 页`;
+    $("ledgerPrevious").disabled = !pageModel.hasPrevious;
+    $("ledgerNext").disabled = !pageModel.hasNext;
   }
 
   function render() {
@@ -802,8 +813,10 @@ import { clearAttachmentCache, loadAttachmentBlob, removeAttachmentFromCache } f
   $("logoutButton").addEventListener("click", () => { clearToken(); clearAttachmentCache(); setAuthVisible(true); });
   $("trashButton").addEventListener("click", openTrashDrawer);
   $("exportButton").addEventListener("click", exportBackup);
-  Object.values(selects).forEach((select) => select.addEventListener("change", render));
-  $("resetFilters").addEventListener("click", () => { Object.values(selects).forEach((select) => { select.value = ""; }); render(); });
+  Object.values(selects).forEach((select) => select.addEventListener("change", () => { ledgerPage = 1; render(); }));
+  $("resetFilters").addEventListener("click", () => { Object.values(selects).forEach((select) => { select.value = ""; }); ledgerPage = 1; render(); });
+  $("ledgerPrevious").addEventListener("click", () => { ledgerPage -= 1; renderRows(selectedTrades()); });
+  $("ledgerNext").addEventListener("click", () => { ledgerPage += 1; renderRows(selectedTrades()); });
   $("drawerClose").addEventListener("click", closeDrawer);
   $("drawerMask").addEventListener("click", closeDrawer);
   $("workspaceBack").addEventListener("click", requestCloseTradeWorkspace);
