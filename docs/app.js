@@ -276,6 +276,7 @@ import { initArticles } from "./articles.js?v=20260803-9";
     const payload = contentType.includes("application/json") ? await response.json() : await response.text();
     if (response.status === 401) {
       clearToken();
+      await clearAttachmentCache();
       setAuthVisible(true, "登录已过期，请重新使用 GitHub 登录。");
       throw new Error("登录已过期");
     }
@@ -827,6 +828,7 @@ import { initArticles } from "./articles.js?v=20260803-9";
   }
 
   async function start() {
+    await clearAttachmentCache();
     parseLoginToken();
     if (!token) { setAuthVisible(true); return; }
     if (!API || API.includes("__API_BASE__")) { setAuthVisible(true, "云端服务尚未完成配置。"); return; }
