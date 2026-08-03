@@ -60,6 +60,18 @@ async function issueToken(user, secret) {
   return `${value}.${await hmac(value, secret)}`;
 }
 
+const d1BusyPattern = /currently processing a long-running (?:export|import)|database is locked/i;
+
+export async function withD1Retry(operation, delays = [100, 250, 500, 1000]) {
+  for (let attempt = 0; ; attempt += 1) {
+    try { return await operation(); }
+    catch (error) {
+      if (!d1BusyPattern.test(String(error?.message || error)) || attempt >= delays.length) throw error;
+      await new Promise((resolve) => setTimeout(resolve, delays[attempt]));
+    }
+  }
+}
+
 async function verifyToken(request, env) {
   const token = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
   const [header, payload, signature] = token.split(".");
@@ -70,8 +82,8 @@ async function verifyToken(request, env) {
     const claims = JSON.parse(new TextDecoder().decode(decode64url(payload)));
     const role = githubAccessRole(claims.login, env);
     if (!claims.jti || claims.exp < Math.floor(Date.now() / 1000) || !role) return null;
-    const revoked = await env.DB.prepare("SELECT jti FROM revoked_sessions WHERE jti = ?1 AND expires_at >= ?2")
-      .bind(claims.jti, Math.floor(Date.now() / 1000)).first();
+    const revoked = await withD1Retry(() => env.DB.prepare("SELECT jti FROM revoked_sessions WHERE jti = ?1 AND expires_at >= ?2")
+      .bind(claims.jti, Math.floor(Date.now() / 1000)).first());
     if (revoked) return null;
     return { ...claims, role };
   } catch { return null; }
@@ -223,9 +235,9 @@ async function handleOAuthCallback(request, env) {
     const now = Math.floor(Date.now() / 1000);
     const code = url.searchParams.get("code") || "";
     const codeHash = await hmac(code, env.JWT_SECRET);
-    const receipt = await env.DB.prepare(
+    const receipt = await withD1Retry(() => env.DB.prepare(
       "SELECT token, return_url FROM oauth_receipts WHERE nonce = ? AND code_hash = ? AND expires_at >= ?"
-    ).bind(state.nonce, codeHash, now).first();
+    ).bind(state.nonce, codeHash, now).first());
     if (receipt?.token) {
       return Response.redirect(`${receipt.return_url}#token=${encodeURIComponent(receipt.token)}`, 302);
     }
@@ -250,12 +262,12 @@ async function handleOAuthCallback(request, env) {
     const user = await userResponse.json();
     if (!isAllowedGithubLogin(user.login, env)) return new Response("此 GitHub 账号无权访问交易数据。", { status: 403 });
     const token = await issueToken(user, env.JWT_SECRET);
-    await env.DB.batch([
+    await withD1Retry(() => env.DB.batch([
       env.DB.prepare(
         "INSERT OR REPLACE INTO oauth_receipts (nonce, code_hash, token, return_url, expires_at) VALUES (?, ?, ?, ?, ?)"
       ).bind(state.nonce, codeHash, token, state.returnUrl, state.exp),
       env.DB.prepare("DELETE FROM oauth_receipts WHERE expires_at < ?").bind(now),
-    ]);
+    ]));
     return Response.redirect(`${state.returnUrl}#token=${encodeURIComponent(token)}`, 302);
   } catch (error) {
     return new Response(`登录失败：${error.message}`, { status: 400, headers: { "Content-Type": "text/plain; charset=utf-8" } });
