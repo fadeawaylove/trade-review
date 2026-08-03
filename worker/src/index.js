@@ -1,4 +1,5 @@
 import { githubAccessRole, isAllowedGithubLogin } from "./access.js";
+import { handleArticleRequest } from "./articles.js";
 
 const encoder = new TextEncoder();
 const SESSION_TTL_SECONDS = 60 * 60 * 24 * 30;
@@ -265,6 +266,14 @@ export default {
     }
     if (user.role !== "editor" && !["GET", "HEAD"].includes(request.method)) {
       return json(request, env, { error: "当前账号仅有浏览权限" }, 403);
+    }
+    if (url.pathname.startsWith("/api/articles") || url.pathname.startsWith("/api/article-images") || /^\/api\/trades\/TR-\d+\/articles$/i.test(url.pathname)) {
+      const articleResponse = await handleArticleRequest(request, env, user, url, {
+        json,
+        binaryHeaders: attachmentHeaders,
+        corsHeaders,
+      });
+      if (articleResponse) return articleResponse;
     }
     if (url.pathname === "/api/dashboard" && request.method === "GET") {
       const dashboard = await loadDashboard(env);

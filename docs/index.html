@@ -13,6 +13,7 @@
   <link rel="manifest" href="./site.webmanifest">
   <link rel="stylesheet" href="./styles.css?v=20260729-2">
   <link rel="stylesheet" href="./readability.css?v=20260729-3">
+  <link rel="stylesheet" href="./articles.css?v=20260803-1">
 </head>
 <body>
   <div class="grain" aria-hidden="true"></div>
@@ -33,18 +34,34 @@
   <div class="app" id="app" hidden>
     <aside class="rail">
       <div class="brand"><div class="seal small">TR</div><div><strong>交易复盘台</strong><small>CLOUD LEDGER</small></div></div>
-      <p class="rail-title">筛选维度</p>
-      <div class="filter-grid">
-        <label><span>品种</span><select id="instrumentFilter"><option value="">全部品种</option></select></label>
-        <label><span>方向</span><select id="directionFilter"><option value="">全部方向</option><option>多</option><option>空</option></select></label>
-        <label><span>时段</span><select id="sessionFilter"><option value="">全部时段</option><option>日盘</option><option>夜盘</option></select></label>
-        <label><span>结果</span><select id="resultFilter"><option value="">全部结果</option><option>盈利</option><option>亏损</option><option>持平</option></select></label>
+      <nav class="section-nav" aria-label="主要板块">
+        <button id="tradesSectionButton" type="button" aria-pressed="true">交易复盘</button>
+        <button id="articlesSectionButton" type="button" aria-pressed="false">随笔</button>
+      </nav>
+      <div id="tradeRailControls">
+        <p class="rail-title">筛选维度</p>
+        <div class="filter-grid">
+          <label><span>品种</span><select id="instrumentFilter"><option value="">全部品种</option></select></label>
+          <label><span>方向</span><select id="directionFilter"><option value="">全部方向</option><option>多</option><option>空</option></select></label>
+          <label><span>时段</span><select id="sessionFilter"><option value="">全部时段</option><option>日盘</option><option>夜盘</option></select></label>
+          <label><span>结果</span><select id="resultFilter"><option value="">全部结果</option><option>盈利</option><option>亏损</option><option>持平</option></select></label>
+        </div>
+        <button class="ghost-button full" id="resetFilters">重置筛选</button>
+        <div class="rail-principle"><b>统计原则</b><p>从空仓开始、最终回到空仓记为一笔完整交易。分批开平仓不重复计算胜率。</p></div>
       </div>
-      <button class="ghost-button full" id="resetFilters">重置筛选</button>
-      <div class="rail-principle"><b>统计原则</b><p>从空仓开始、最终回到空仓记为一笔完整交易。分批开平仓不重复计算胜率。</p></div>
+      <div class="article-rail" id="articleRailControls" hidden>
+        <p class="rail-title">随笔检索</p>
+        <label><span>搜索</span><input id="articleSearch" type="search" placeholder="标题、摘要或标签"></label>
+        <label><span>状态</span><select id="articleStatusFilter"><option value="">全部状态</option><option value="draft">草稿</option><option value="final">已整理</option></select></label>
+        <label><span>标签</span><select id="articleTagFilter"><option value="">全部标签</option></select></label>
+        <button class="primary-button full" id="newArticleButton" type="button">＋ 新建随笔</button>
+        <label class="ghost-button full article-import">导入 Markdown<input id="articleImportInput" type="file" accept=".md,.markdown,text/markdown,text/plain"></label>
+        <button class="ghost-button full" id="articleTrashButton" type="button">随笔回收站</button>
+      </div>
     </aside>
 
     <main>
+      <div id="tradesSection">
       <header class="masthead">
         <div>
           <p class="eyebrow">Execution · Evidence · Edge</p>
@@ -138,6 +155,57 @@
       </section>
 
       <footer><span id="footerMeta"></span><span>交易数据受 GitHub 身份验证保护 · Cloudflare D1 持久化</span></footer>
+      </div>
+
+      <section class="articles-section" id="articlesSection" hidden>
+        <header class="article-masthead">
+          <div><p class="eyebrow">Journal · Method · Memory</p><h1>随笔</h1><p class="subtitle">把交易经验整理成可检索、可回看的个人方法库。</p></div>
+          <div class="article-header-actions"><button class="ghost-button" id="articleExportAll" type="button">导出随笔 JSON</button></div>
+        </header>
+        <div class="article-layout">
+          <aside class="article-list-panel" aria-label="随笔列表">
+            <div class="article-list-caption"><strong id="articleListCount">0 篇</strong><span id="articleListMode">按更新时间排序</span></div>
+            <div class="article-list" id="articleList"></div>
+          </aside>
+          <article class="article-content-panel">
+            <div class="article-empty" id="articleEmpty"><b>选择一篇随笔开始阅读</b><p>也可以新建或导入 Markdown 文件。</p></div>
+            <div id="articleReader" hidden>
+              <div class="article-reader-toolbar">
+                <button class="ghost-button" id="articleEditButton" type="button">编辑</button>
+                <button class="ghost-button" id="articleDownloadButton" type="button">导出 .md</button>
+                <button class="ghost-button" id="articleHistoryButton" type="button">版本历史</button>
+                <button class="danger-button" id="articleDeleteButton" type="button">移入回收站</button>
+              </div>
+              <p class="eyebrow" id="articleReaderStatus"></p>
+              <h1 id="articleReaderTitle"></h1>
+              <div class="article-meta" id="articleReaderMeta"></div>
+              <div class="article-tags" id="articleReaderTags"></div>
+              <div class="article-markdown" id="articleMarkdown"></div>
+              <section class="article-related"><h2>关联交易</h2><div id="articleTradeLinks"></div></section>
+            </div>
+            <form id="articleEditor" hidden>
+              <div class="article-editor-head"><strong id="articleEditorHeading">编辑随笔</strong><span id="articleSaveState">尚未保存</span></div>
+              <label><span>标题</span><input id="articleTitleInput" maxlength="120" required></label>
+              <div class="article-editor-meta">
+                <label><span>状态</span><select id="articleStatusInput"><option value="draft">草稿</option><option value="final">已整理</option></select></label>
+                <label><span>标签</span><input id="articleTagsInput" placeholder="用逗号分隔，最多 10 个"></label>
+              </div>
+              <div class="article-editor-tabs" role="tablist"><button id="articleSourceTab" type="button" aria-pressed="true">Markdown</button><button id="articlePreviewTab" type="button" aria-pressed="false">预览</button></div>
+              <textarea id="articleContentInput" aria-label="Markdown 正文" spellcheck="false"></textarea>
+              <div class="article-markdown article-editor-preview" id="articlePreview" hidden></div>
+              <div class="article-editor-assets">
+                <section><h2>插入图片</h2><p>上传后会在光标处插入私有图片语法。</p><label class="ghost-button article-image-upload">选择图片<input id="articleImageInput" type="file" accept="image/png,image/jpeg,image/webp" multiple></label><div id="articleImages"></div></section>
+                <section><h2>关联交易</h2><p>从现有交易中选择，文章与复盘可以相互追溯。</p><div class="article-trade-picker" id="articleTradePicker"></div></section>
+              </div>
+              <div class="article-editor-actions"><button class="ghost-button" id="articleCancelButton" type="button">取消</button><button class="primary-button" id="articleSaveButton" type="submit">保存随笔</button></div>
+            </form>
+            <aside class="article-history" id="articleHistory" hidden>
+              <div class="article-history-head"><div><small>VERSION HISTORY</small><h2>版本历史</h2></div><button id="articleHistoryClose" type="button" aria-label="关闭版本历史">×</button></div>
+              <div id="articleHistoryList"></div>
+            </aside>
+          </article>
+        </div>
+      </section>
     </main>
   </div>
 

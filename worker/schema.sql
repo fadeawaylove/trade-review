@@ -54,3 +54,74 @@ CREATE TABLE IF NOT EXISTS deleted_trades (
 );
 
 CREATE INDEX IF NOT EXISTS idx_deleted_trades_deleted_at ON deleted_trades(deleted_at);
+
+-- Private Markdown essays are stored outside the public Pages repository.
+CREATE TABLE IF NOT EXISTS articles (
+  id TEXT PRIMARY KEY,
+  title TEXT NOT NULL,
+  content_md TEXT NOT NULL,
+  excerpt TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL CHECK (status IN ('draft', 'final')),
+  tags_json TEXT NOT NULL DEFAULT '[]',
+  trade_ids_json TEXT NOT NULL DEFAULT '[]',
+  revision INTEGER NOT NULL DEFAULT 1,
+  created_by TEXT NOT NULL,
+  updated_by TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  deleted_at TEXT,
+  deleted_by TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_articles_updated_at ON articles(deleted_at, updated_at DESC);
+
+CREATE TABLE IF NOT EXISTS article_versions (
+  article_id TEXT NOT NULL,
+  revision INTEGER NOT NULL,
+  title TEXT NOT NULL,
+  content_md TEXT NOT NULL,
+  status TEXT NOT NULL,
+  tags_json TEXT NOT NULL,
+  trade_ids_json TEXT NOT NULL,
+  created_by TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  PRIMARY KEY (article_id, revision),
+  FOREIGN KEY (article_id) REFERENCES articles(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_article_versions_article ON article_versions(article_id, revision DESC);
+
+CREATE TABLE IF NOT EXISTS article_images (
+  id TEXT PRIMARY KEY,
+  article_id TEXT NOT NULL,
+  file_name TEXT NOT NULL,
+  mime_type TEXT NOT NULL,
+  byte_size INTEGER NOT NULL,
+  image_data BLOB NOT NULL,
+  created_by TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  FOREIGN KEY (article_id) REFERENCES articles(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_article_images_article ON article_images(article_id, created_at);
+
+CREATE TABLE IF NOT EXISTS article_trade_links (
+  article_id TEXT NOT NULL,
+  trade_id TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  PRIMARY KEY (article_id, trade_id),
+  FOREIGN KEY (article_id) REFERENCES articles(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_article_trade_links_trade ON article_trade_links(trade_id, article_id);
+
+CREATE TABLE IF NOT EXISTS article_audit_log (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  article_id TEXT NOT NULL,
+  action TEXT NOT NULL,
+  actor TEXT NOT NULL,
+  detail TEXT,
+  created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_article_audit_created_at ON article_audit_log(article_id, created_at DESC);

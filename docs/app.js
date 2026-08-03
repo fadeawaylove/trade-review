@@ -2,6 +2,7 @@ import { buildEquityChartModel, chartWidthForRange, resolveChartRange } from "./
 import { buildEvidenceCarouselState } from "./evidence-carousel.js?v=20260721-1";
 import { clearAttachmentCache, loadAttachmentBlob, removeAttachmentFromCache } from "./attachment-cache.js?v=20260722-1";
 import { paginateLedgerRows } from "./ledger-pagination.js?v=20260729-1";
+import { initArticles } from "./articles.js?v=20260803-1";
 
 (() => {
   const CONFIG = window.TRADE_CONFIG || {};
@@ -31,6 +32,20 @@ import { paginateLedgerRows } from "./ledger-pagination.js?v=20260729-1";
   let equityChartScrollToLatest = false;
   let equityChartCompact = matchMedia("(max-width: 760px)").matches;
   let ledgerPage = 1;
+  const articles = initArticles({
+    apiFetch,
+    apiBase: API,
+    getToken: () => token,
+    getDashboard: () => dashboard,
+    notify,
+    prepareImage: prepareAttachment,
+    openTrade: (tradeId) => {
+      const trade = dashboard?.trades?.find((row) => row.tradeId === tradeId) || dashboard?.deletedTrades?.find((row) => row.tradeId === tradeId);
+      if (!trade || trade.deletedAt) { notify("关联交易当前位于回收站", true); return; }
+      articles.showSection("trades", { updateHistory: false });
+      openTradeWorkspace(trade);
+    },
+  });
 
   function readToken() {
     try { return localStorage.getItem(TOKEN_KEY) || sessionStorage.getItem(TOKEN_KEY) || ""; }
@@ -670,6 +685,7 @@ import { paginateLedgerRows } from "./ledger-pagination.js?v=20260729-1";
         <label class="edit-field full"><span>出场理由</span><textarea name="exitReason">${esc(trade.exitReason || "")}</textarea></label>
         <label class="edit-field full"><span>复盘备注</span><textarea name="reviewNotes">${esc(trade.reviewNotes || "")}</textarea></label>
       </div><div class="edit-actions"><button class="ghost-button clear-button" id="clearAnnotation" type="button">清除文字补充</button><span class="save-state" id="saveState">云端持久化</span></div></form>
+        <section class="trade-related-articles"><div><small>RELATED ESSAYS</small><h3>关联随笔</h3></div><div id="tradeRelatedArticles"><span>正在读取关联随笔…</span></div></section>
         <section class="delete-trade-section"><div><h3>不计入统计</h3><p>将整笔交易移入回收站。复盘文字和图片都会保留，之后可以恢复。</p></div><button class="ghost-button delete-trade-button" id="deleteTrade" type="button">移入回收站</button></section></section>
       </div></div>`;
     workspace.hidden = false;
@@ -705,6 +721,16 @@ import { paginateLedgerRows } from "./ledger-pagination.js?v=20260729-1";
       moveEvidence(event.key === "ArrowLeft" ? -1 : 1);
     });
     loadAttachmentPreviews(trade);
+    apiFetch(`/api/trades/${encodeURIComponent(trade.tradeId)}/articles`).then((payload) => {
+      const related = payload.articles || [];
+      $("tradeRelatedArticles").innerHTML = related.length
+        ? related.map((article) => `<button type="button" data-related-article="${esc(article.id)}"><b>${esc(article.title)}</b><small>${article.status === "final" ? "已整理" : "草稿"}</small></button>`).join("")
+        : "<span>尚未关联随笔</span>";
+      $("tradeRelatedArticles").querySelectorAll("[data-related-article]").forEach((button) => button.addEventListener("click", () => {
+        hideTradeWorkspace({ restoreFocus: false, restoreScroll: false });
+        articles.open(button.dataset.relatedArticle).catch((error) => notify(error.message, true));
+      }));
+    }).catch((error) => { $("tradeRelatedArticles").textContent = error.message; });
     $("previousTrade").onclick = () => previous && openTradeWorkspace(previous, { historyMode: "replace" });
     $("nextTrade").onclick = () => next && openTradeWorkspace(next, { historyMode: "replace" });
     $("attachmentInput")?.addEventListener("change", (event) => uploadAttachmentFiles(event.currentTarget.files, trade));
@@ -795,6 +821,7 @@ import { paginateLedgerRows } from "./ledger-pagination.js?v=20260729-1";
       await renewSession();
       const [session, data] = await Promise.all([apiFetch("/api/session"), apiFetch("/api/dashboard")]);
       dashboard = data;
+      articles.setSession(session.user);
       $("userAvatar").src = session.user.avatar || "";
       $("userName").textContent = session.user.name || session.user.login;
       [...new Set(dashboard.trades.map((trade) => trade.instrument))].sort().forEach((value) => {
@@ -803,6 +830,7 @@ import { paginateLedgerRows } from "./ledger-pagination.js?v=20260729-1";
       render();
       const routedTrade = dashboard.trades.find((trade) => trade.tradeId === tradeRouteId());
       if (routedTrade) openTradeWorkspace(routedTrade, { historyMode: "none" });
+      else await articles.route();
       setInterval(() => { renewSession().catch(() => {}); }, RENEW_INTERVAL_MS);
     } catch (error) {
       if (token) { setAuthVisible(true, error.message); }
