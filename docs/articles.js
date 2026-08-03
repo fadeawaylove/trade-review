@@ -49,6 +49,18 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
     $("articleSaveState").textContent = dirty ? "有未保存修改" : current ? `云端版本 ${current.revision}` : "尚未保存";
   }
 
+  function setEditorPreview(active) {
+    const previewing = Boolean(active);
+    const button = $("articlePreviewButton");
+    if (previewing) {
+      $("articleEditorPreview").innerHTML = renderArticleMarkdown(articleEditorInstance.getValue());
+    }
+    $("articleEditorPreview").hidden = !previewing;
+    $("articleContentEditor").hidden = previewing;
+    button.setAttribute("aria-pressed", String(previewing));
+    button.textContent = previewing ? "继续写作" : "预览";
+  }
+
   function ensureArticleEditor(value = "") {
     pendingEditorValue = value;
     if (articleEditorInstance) {
@@ -61,6 +73,7 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
     if (!window.Vditor) return Promise.reject(new Error("Markdown 编辑器资源加载失败，请刷新页面重试"));
 
     $("articleSaveButton").disabled = true;
+    $("articlePreviewButton").disabled = true;
     $("articleSaveState").textContent = "正在加载专业编辑器…";
     articleEditorPromise = new Promise((resolve, reject) => {
       try {
@@ -70,20 +83,20 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
           lang: "zh_CN",
           mode: "ir",
           theme: "classic",
-          height: 680,
-          minHeight: 520,
-          placeholder: "从一个想法开始。输入 / 或使用上方工具栏插入标题、列表、引用、代码和表格……",
+          height: Math.max(580, window.innerHeight - 270),
+          minHeight: 560,
+          placeholder: "从一个想法开始……",
           typewriterMode: true,
           cache: { enable: false },
           counter: { enable: true, type: "text" },
-          resize: { enable: true },
-          outline: { enable: true, position: "right" },
+          resize: { enable: false },
+          outline: { enable: false },
           toolbarConfig: { pin: true },
           toolbar: [
-            "headings", "bold", "italic", "strike", "|",
-            "line", "quote", "list", "ordered-list", "check", "|",
-            "code", "inline-code", "link", "table", "|",
-            "undo", "redo", "|", "edit-mode", "both", "preview", "fullscreen", "outline",
+            "headings", "bold", "italic", "|",
+            "quote", "list", "ordered-list", "check", "|",
+            "link", "table", "code", "|",
+            "undo", "redo", "fullscreen",
           ],
           preview: {
             delay: 250,
@@ -95,6 +108,7 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
             articleEditorInstance.setValue(pendingEditorValue, true);
             syncingEditor = false;
             $("articleSaveButton").disabled = false;
+            $("articlePreviewButton").disabled = false;
             if (!dirty) setDirty(false);
             resolve(editor);
           },
@@ -196,6 +210,7 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
 
   function renderReader(article) {
     revokeImages();
+    document.body.classList.remove("article-writing-open");
     $("articleEditor").closest(".article-layout").classList.remove("is-editing");
     $("articleEmpty").hidden = true;
     $("articleEditor").hidden = true;
@@ -255,6 +270,7 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
     $("articleReader").hidden = true;
     $("articleHistory").hidden = true;
     $("articleEditor").hidden = false;
+    document.body.classList.add("article-writing-open");
     $("articleEditor").closest(".article-layout").classList.add("is-editing");
     $("articleEditorHeading").textContent = article ? "编辑随笔" : "新建随笔";
     $("articleTitleInput").value = article?.title || "";
@@ -262,6 +278,7 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
     $("articleTagsInput").value = (article?.tags || []).join("，");
     renderTradePicker(article?.tradeIds || []);
     renderEditorImages(article?.images || []);
+    setEditorPreview(false);
     setDirty(false);
     $("articleTitleInput").focus();
     ensureArticleEditor(article?.contentMd || "").catch((error) => notify(error.message, true));
@@ -364,6 +381,7 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
     current = null;
     $("articleReader").hidden = true;
     $("articleEditor").hidden = true;
+    document.body.classList.remove("article-writing-open");
     $("articleEditor").closest(".article-layout").classList.remove("is-editing");
     $("articleEmpty").hidden = false;
     renderList();
@@ -387,6 +405,7 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
     if (current) renderReader(current);
     else {
       $("articleEditor").hidden = true;
+      document.body.classList.remove("article-writing-open");
       $("articleEditor").closest(".article-layout").classList.remove("is-editing");
       $("articleEmpty").hidden = false;
     }
@@ -437,8 +456,10 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
       event.preventDefault();
       $("articleEditor").requestSubmit();
     }
+    if (event.key === "Escape") cancelEditor();
   });
   $("articleCancelButton").addEventListener("click", cancelEditor);
+  $("articlePreviewButton").addEventListener("click", () => setEditorPreview($("articleEditorPreview").hidden));
   $("articleHistoryClose").addEventListener("click", () => { $("articleHistory").hidden = true; });
   $("articleImageInput").addEventListener("change", (event) => { uploadImages(event.target.files || []); event.target.value = ""; });
   $("articleExportAll").addEventListener("click", exportAll);

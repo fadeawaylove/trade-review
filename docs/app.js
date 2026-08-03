@@ -2,7 +2,7 @@ import { buildEquityChartModel, chartWidthForRange, resolveChartRange } from "./
 import { buildEvidenceCarouselState } from "./evidence-carousel.js?v=20260721-1";
 import { clearAttachmentCache, loadAttachmentBlob, removeAttachmentFromCache } from "./attachment-cache.js?v=20260722-1";
 import { paginateLedgerRows } from "./ledger-pagination.js?v=20260729-1";
-import { initArticles } from "./articles.js?v=20260803-3";
+import { initArticles } from "./articles.js?v=20260803-4";
 
 (() => {
   const CONFIG = window.TRADE_CONFIG || {};
