@@ -82,7 +82,6 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
           cdn: VDITOR_CDN,
           lang: "zh_CN",
           mode: "ir",
-          icon: "ant",
           theme: "classic",
           height: Math.max(580, window.innerHeight - 270),
           minHeight: 560,
