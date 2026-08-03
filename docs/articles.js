@@ -36,6 +36,7 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
   let articleEditorPromise = null;
   let pendingEditorValue = "";
   let syncingEditor = false;
+  let previewTimer = null;
 
   const canEdit = () => currentUser?.role === "editor";
 
@@ -49,16 +50,14 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
     $("articleSaveState").textContent = dirty ? "有未保存修改" : current ? `云端版本 ${current.revision}` : "尚未保存";
   }
 
-  function setEditorPreview(active) {
-    const previewing = Boolean(active);
-    const button = $("articlePreviewButton");
-    if (previewing) {
-      $("articleEditorPreview").innerHTML = renderArticleMarkdown(articleEditorInstance.getValue());
-    }
-    $("articleEditorPreview").hidden = !previewing;
-    $("articleContentEditor").hidden = previewing;
-    button.setAttribute("aria-pressed", String(previewing));
-    button.textContent = previewing ? "继续写作" : "预览";
+  function updateLivePreview(markdown = "") {
+    $("articlePreviewTitle").textContent = $("articleTitleInput").value.trim() || "无标题随笔";
+    $("articleEditorPreview").innerHTML = renderArticleMarkdown(markdown);
+  }
+
+  function scheduleLivePreview(markdown) {
+    window.clearTimeout(previewTimer);
+    previewTimer = window.setTimeout(() => updateLivePreview(markdown), 160);
   }
 
   function ensureArticleEditor(value = "") {
@@ -67,13 +66,13 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
       syncingEditor = true;
       articleEditorInstance.setValue(value, true);
       syncingEditor = false;
+      updateLivePreview(value);
       return Promise.resolve(articleEditorInstance);
     }
     if (articleEditorPromise) return articleEditorPromise;
     if (!window.Vditor) return Promise.reject(new Error("Markdown 编辑器资源加载失败，请刷新页面重试"));
 
     $("articleSaveButton").disabled = true;
-    $("articlePreviewButton").disabled = true;
     $("articleSaveState").textContent = "正在加载专业编辑器…";
     articleEditorPromise = new Promise((resolve, reject) => {
       try {
@@ -108,11 +107,15 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
             articleEditorInstance.setValue(pendingEditorValue, true);
             syncingEditor = false;
             $("articleSaveButton").disabled = false;
-            $("articlePreviewButton").disabled = false;
+            updateLivePreview(pendingEditorValue);
             if (!dirty) setDirty(false);
             resolve(editor);
           },
-          input: () => { if (articleEditorInstance && !syncingEditor) setDirty(true); },
+          input: () => {
+            if (!articleEditorInstance || syncingEditor) return;
+            setDirty(true);
+            scheduleLivePreview(articleEditorInstance.getValue());
+          },
           ctrlEnter: () => $("articleEditor").requestSubmit(),
         });
       } catch (error) {
@@ -278,7 +281,7 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
     $("articleTagsInput").value = (article?.tags || []).join("，");
     renderTradePicker(article?.tradeIds || []);
     renderEditorImages(article?.images || []);
-    setEditorPreview(false);
+    updateLivePreview(article?.contentMd || "");
     setDirty(false);
     $("articleTitleInput").focus();
     ensureArticleEditor(article?.contentMd || "").catch((error) => notify(error.message, true));
@@ -459,11 +462,11 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
     if (event.key === "Escape") cancelEditor();
   });
   $("articleCancelButton").addEventListener("click", cancelEditor);
-  $("articlePreviewButton").addEventListener("click", () => setEditorPreview($("articleEditorPreview").hidden));
   $("articleHistoryClose").addEventListener("click", () => { $("articleHistory").hidden = true; });
   $("articleImageInput").addEventListener("change", (event) => { uploadImages(event.target.files || []); event.target.value = ""; });
   $("articleExportAll").addEventListener("click", exportAll);
-  ["articleTitleInput", "articleStatusInput", "articleTagsInput", "articleTradePicker"].forEach((id) => $(id).addEventListener("input", () => setDirty(true)));
+  $("articleTitleInput").addEventListener("input", () => { setDirty(true); updateLivePreview(articleEditorInstance?.getValue() || pendingEditorValue); });
+  ["articleStatusInput", "articleTagsInput", "articleTradePicker"].forEach((id) => $(id).addEventListener("input", () => setDirty(true)));
   window.addEventListener("beforeunload", (event) => { if (dirty) { event.preventDefault(); event.returnValue = ""; } });
   window.addEventListener("popstate", () => { route().catch((error) => notify(error.message, true)); });
 
