@@ -9,6 +9,13 @@ function safeLink(value) {
   return /^(?:https?:|mailto:|#)/i.test(href) ? href : "";
 }
 
+function safeInlineImage(value) {
+  const source = String(value || "").trim();
+  if (/^blob:(?:https?:\/\/|null\/)[^\s"'<>]+$/i.test(source)) return source;
+  if (/^data:image\/(?:png|jpeg|webp);base64,[a-z0-9+/=]+$/i.test(source)) return source;
+  return "";
+}
+
 function inlineMarkdown(value) {
   const slots = [];
   const hold = (html) => `\u0000${slots.push(html) - 1}\u0000`;
@@ -18,6 +25,10 @@ function inlineMarkdown(value) {
     const privateImage = source.match(articleImagePattern);
     if (privateImage) {
       return hold(`<figure class="article-image" data-article-image-id="${privateImage[1]}"><div class="article-image-state">正在读取私有图片…</div><figcaption>${escapeHtml(alt || "随笔图片")}</figcaption></figure>`);
+    }
+    const inlineImage = safeInlineImage(source);
+    if (inlineImage) {
+      return hold(`<figure class="article-image"><img src="${escapeHtml(inlineImage)}" alt="${escapeHtml(alt || "随笔图片")}"><figcaption>${escapeHtml(alt || "随笔图片")}</figcaption></figure>`);
     }
     const href = safeLink(source);
     return href ? hold(`<a href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer">${escapeHtml(alt || "外部图片")}</a>`) : escapeHtml(alt || source);

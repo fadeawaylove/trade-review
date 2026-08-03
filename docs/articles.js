@@ -1,4 +1,4 @@
-import { renderArticleMarkdown } from "./article-markdown.js?v=20260803-1";
+import { renderArticleMarkdown } from "./article-markdown.js?v=20260803-2";
 import {
   articleDownloadName,
   articleHash,
@@ -37,12 +37,52 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
   let pendingEditorValue = "";
   let syncingEditor = false;
   let previewTimer = null;
+  const pendingPastedImages = new Map();
 
   const canEdit = () => currentUser?.role === "editor";
 
   function revokeImages() {
     imageObjectUrls.forEach((url) => URL.revokeObjectURL(url));
     imageObjectUrls = [];
+  }
+
+  function discardPendingImages() {
+    pendingPastedImages.forEach((_image, localUrl) => URL.revokeObjectURL(localUrl));
+    pendingPastedImages.clear();
+  }
+
+  function safeImageName(file, index = 0) {
+    const extension = { "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp" }[file.type] || "png";
+    return String(file.name || `截图-${index + 1}.${extension}`).replace(/[\[\]\r\n]/g, "_");
+  }
+
+  function trackPendingImage(file, index = 0) {
+    const localUrl = URL.createObjectURL(file);
+    pendingPastedImages.set(localUrl, { file, fileName: safeImageName(file, index) });
+    return localUrl;
+  }
+
+  function validatePastedImages(files) {
+    const images = [...files];
+    if (!images.length) return "没有读取到图片";
+    if (images.some((file) => !["image/png", "image/jpeg", "image/webp"].includes(file.type))) return "仅支持 PNG、JPEG 或 WebP 图片";
+    if ((current?.images?.length || 0) + pendingPastedImages.size + images.length > 20) return "每篇随笔最多保存 20 张图片";
+    return "";
+  }
+
+  function insertPastedImages(files) {
+    const validationError = validatePastedImages(files);
+    if (validationError) return validationError;
+    [...files].forEach((file, index) => {
+      const localUrl = trackPendingImage(file, index);
+      articleEditorInstance.insertValue(`\n\n![${safeImageName(file, index)}](${localUrl})\n`);
+    });
+    const markdown = articleEditorInstance.getValue();
+    pendingEditorValue = markdown;
+    setDirty(true);
+    scheduleLivePreview(markdown);
+    notify(`${files.length} 张截图已加入，保存随笔时自动上传`);
+    return null;
   }
 
   function setDirty(value) {
@@ -94,9 +134,29 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
           toolbar: [
             "headings", "bold", "italic", "|",
             "quote", "list", "ordered-list", "check", "|",
-            "link", "table", "code", "|",
+            "upload", "link", "table", "code", "|",
             "undo", "redo", "fullscreen",
           ],
+          upload: {
+            accept: "image/png,image/jpeg,image/webp",
+            multiple: true,
+            handler: async (files) => insertPastedImages(files),
+            base64ToLink: async (dataUrl) => {
+              const response = await fetch(dataUrl);
+              const blob = await response.blob();
+              const file = new File([blob], `截图-${pendingPastedImages.size + 1}.${blob.type === "image/jpeg" ? "jpg" : blob.type.split("/")[1] || "png"}`, { type: blob.type });
+              const validationError = validatePastedImages([file]);
+              if (validationError) throw new Error(validationError);
+              const localUrl = trackPendingImage(file);
+              window.setTimeout(() => {
+                const markdown = articleEditorInstance?.getValue() || pendingEditorValue;
+                pendingEditorValue = markdown;
+                setDirty(true);
+                scheduleLivePreview(markdown);
+              }, 0);
+              return localUrl;
+            },
+          },
           preview: {
             delay: 250,
             hljs: { enable: true, lineNumber: true, style: "github" },
@@ -212,6 +272,7 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
   }
 
   function renderReader(article) {
+    discardPendingImages();
     revokeImages();
     document.body.classList.remove("article-writing-open");
     $("articleEditor").closest(".article-layout").classList.remove("is-editing");
@@ -264,6 +325,7 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
 
   function editArticle(article = null) {
     if (!canEdit()) { notify("当前账号仅有浏览权限", true); return; }
+    discardPendingImages();
     if (!article?.id) {
       trashMode = false;
       renderList();
@@ -298,23 +360,73 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
     };
   }
 
+  function syncEditorMarkdown(markdown) {
+    pendingEditorValue = markdown;
+    if (articleEditorInstance) {
+      syncingEditor = true;
+      articleEditorInstance.setValue(markdown, true);
+      syncingEditor = false;
+    }
+    updateLivePreview(markdown);
+  }
+
+  async function persistPendingImages(articleId, markdown) {
+    let contentMd = markdown;
+    for (const [localUrl, pendingImage] of [...pendingPastedImages]) {
+      if (!contentMd.includes(localUrl)) {
+        URL.revokeObjectURL(localUrl);
+        pendingPastedImages.delete(localUrl);
+        continue;
+      }
+      const prepared = await prepareImage(pendingImage.file);
+      const result = await apiFetch(`/api/articles/${encodeURIComponent(articleId)}/images`, {
+        method: "POST",
+        body: prepared.blob,
+        headers: { "Content-Type": prepared.blob.type, "X-File-Name": encodeURIComponent(prepared.fileName) },
+      });
+      const remoteSource = result.markdown?.match(/\]\((article-image:[^)]+)\)/)?.[1];
+      if (!remoteSource) throw new Error("图片上传完成，但没有返回有效的 Markdown 引用");
+      contentMd = contentMd.split(localUrl).join(remoteSource);
+      current.images = [...(current.images || []), result.image];
+      URL.revokeObjectURL(localUrl);
+      pendingPastedImages.delete(localUrl);
+      renderEditorImages(current.images);
+      syncEditorMarkdown(contentMd);
+    }
+    return contentMd;
+  }
+
   async function saveArticle(event) {
     event.preventDefault();
     const button = $("articleSaveButton");
     button.disabled = true;
     button.textContent = "正在保存…";
     try {
-      const payload = editorPayload();
-      const result = current?.id
-        ? await apiFetch(`/api/articles/${encodeURIComponent(current.id)}`, { method: "PUT", body: JSON.stringify(payload) })
-        : await apiFetch("/api/articles", { method: "POST", body: JSON.stringify(payload) });
-      current = result.article;
+      let payload = editorPayload();
+      const isNewArticle = !current?.id;
+      if (isNewArticle) {
+        const created = await apiFetch("/api/articles", { method: "POST", body: JSON.stringify(payload) });
+        current = created.article;
+      }
+      if (pendingPastedImages.size) {
+        payload = { ...payload, contentMd: await persistPendingImages(current.id, payload.contentMd), revision: current.revision };
+      }
+      if (!isNewArticle || payload.contentMd !== current.contentMd) {
+        const updated = await apiFetch(`/api/articles/${encodeURIComponent(current.id)}`, {
+          method: "PUT",
+          body: JSON.stringify({ ...payload, revision: current.revision }),
+        });
+        current = updated.article;
+      }
       setDirty(false);
       await loadSummaries();
       renderReader(current);
       setHash(articleHash(current.id), "replace");
       notify("随笔已保存到云端");
-    } catch (error) { notify(error.message, true); }
+    } catch (error) {
+      setDirty(true);
+      notify(current?.id && pendingPastedImages.size ? `${error.message}；文章已保留，可再次保存重试图片上传` : error.message, true);
+    }
     finally { button.disabled = false; button.textContent = "保存随笔"; }
   }
 
@@ -380,6 +492,7 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
   }
 
   async function toggleTrash() {
+    discardPendingImages();
     trashMode = !trashMode;
     current = null;
     $("articleReader").hidden = true;
@@ -407,6 +520,7 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
     setDirty(false);
     if (current) renderReader(current);
     else {
+      discardPendingImages();
       $("articleEditor").hidden = true;
       document.body.classList.remove("article-writing-open");
       $("articleEditor").closest(".article-layout").classList.remove("is-editing");
