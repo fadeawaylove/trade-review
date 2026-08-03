@@ -1,4 +1,7 @@
-export const ATTACHMENT_CACHE_NAME = "trade-review-attachments-v1";
+export const ATTACHMENT_CACHE_NAME = "trade-review-attachments-v2";
+export const ATTACHMENT_CACHE_TTL_MS = 5 * 60 * 1000;
+
+const LEGACY_ATTACHMENT_CACHE_NAMES = ["trade-review-attachments-v1"];
 
 const pendingLoads = new Map();
 
@@ -16,7 +19,11 @@ export async function loadAttachmentBlob({ apiBase, attachmentId, token, fetchIm
   const url = attachmentUrl(apiBase, attachmentId);
   const cache = await openAttachmentCache(cacheStorage);
   const cached = await cache?.match(url).catch(() => null);
-  if (cached) return cached.blob();
+  if (cached) {
+    const cachedAt = Number(cached.headers.get("X-Trade-Cache-At") || 0);
+    if (cachedAt && Date.now() - cachedAt <= ATTACHMENT_CACHE_TTL_MS) return cached.blob();
+    await cache?.delete(url).catch(() => {});
+  }
 
   if (pendingLoads.has(url)) return pendingLoads.get(url);
   const pending = (async () => {
@@ -26,9 +33,12 @@ export async function loadAttachmentBlob({ apiBase, attachmentId, token, fetchIm
       error.status = response.status;
       throw error;
     }
-    const cacheCopy = response.clone();
     const blob = await response.blob();
-    if (cache) await cache.put(url, cacheCopy).catch(() => {});
+    if (cache) {
+      const headers = new Headers(response.headers);
+      headers.set("X-Trade-Cache-At", String(Date.now()));
+      await cache.put(url, new Response(blob, { status: 200, headers })).catch(() => {});
+    }
     return blob;
   })();
   pendingLoads.set(url, pending);
@@ -45,6 +55,9 @@ export async function removeAttachmentFromCache(apiBase, attachmentId, cacheStor
 
 export async function clearAttachmentCache(cacheStorage = globalThis.caches) {
   if (!cacheStorage?.delete) return false;
-  try { return await cacheStorage.delete(ATTACHMENT_CACHE_NAME); }
+  try {
+    const results = await Promise.all([ATTACHMENT_CACHE_NAME, ...LEGACY_ATTACHMENT_CACHE_NAMES].map((name) => cacheStorage.delete(name)));
+    return results.some(Boolean);
+  }
   catch { return false; }
 }

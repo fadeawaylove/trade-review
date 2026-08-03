@@ -1,19 +1,20 @@
 import { buildEquityChartModel, chartWidthForRange, resolveChartRange } from "./equity-chart.js?v=20260723-1";
 import { buildEvidenceCarouselState } from "./evidence-carousel.js?v=20260721-1";
-import { clearAttachmentCache, loadAttachmentBlob, removeAttachmentFromCache } from "./attachment-cache.js?v=20260722-1";
+import { clearAttachmentCache, loadAttachmentBlob, removeAttachmentFromCache } from "./attachment-cache.js?v=20260803-2";
 import { paginateLedgerRows } from "./ledger-pagination.js?v=20260729-1";
-import { initArticles } from "./articles.js?v=20260803-8";
+import { initArticles } from "./articles.js?v=20260803-9";
 
 (() => {
   const CONFIG = window.TRADE_CONFIG || {};
   const API = String(CONFIG.apiBase || "").replace(/\/$/, "");
   const $ = (id) => document.getElementById(id);
   const TOKEN_KEY = "tradeReviewToken";
-  const RENEW_INTERVAL_MS = 12 * 60 * 60 * 1000;
+  const RENEW_INTERVAL_MS = 4 * 60 * 60 * 1000;
   const filters = ["instrument", "direction", "session", "result"];
   const selects = Object.fromEntries(filters.map((name) => [name, $(`${name}Filter`)]));
   let dashboard = null;
   let token = readToken();
+  let currentUser = null;
   let toastTimer = null;
   let attachmentObjectUrls = [];
   let activeTradeId = null;
@@ -48,20 +49,20 @@ import { initArticles } from "./articles.js?v=20260803-8";
   });
 
   function readToken() {
-    try { return localStorage.getItem(TOKEN_KEY) || sessionStorage.getItem(TOKEN_KEY) || ""; }
-    catch { return sessionStorage.getItem(TOKEN_KEY) || ""; }
+    try {
+      localStorage.removeItem(TOKEN_KEY);
+      return sessionStorage.getItem(TOKEN_KEY) || "";
+    } catch { return ""; }
   }
 
   function saveToken(value) {
     token = value || "";
     try {
-      if (token) localStorage.setItem(TOKEN_KEY, token);
-      else localStorage.removeItem(TOKEN_KEY);
-      sessionStorage.removeItem(TOKEN_KEY);
-      return;
-    } catch {
       if (token) sessionStorage.setItem(TOKEN_KEY, token);
       else sessionStorage.removeItem(TOKEN_KEY);
+      localStorage.removeItem(TOKEN_KEY);
+    } catch {
+      // Keep the token in memory when browser storage is unavailable.
     }
   }
 
@@ -293,6 +294,19 @@ import { initArticles } from "./articles.js?v=20260803-8";
     if (!token) return;
     const renewed = await apiFetch("/api/session/refresh", { method: "POST" });
     if (renewed.token) saveToken(renewed.token);
+  }
+
+  async function logout() {
+    const currentToken = token;
+    clearToken();
+    currentUser = null;
+    await clearAttachmentCache();
+    setAuthVisible(true);
+    if (!currentToken || !API || API.includes("__API_BASE__")) return;
+    await fetch(`${API}/api/session/logout`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${currentToken}` },
+    }).catch(() => {});
   }
 
   function login() {
@@ -821,7 +835,11 @@ import { initArticles } from "./articles.js?v=20260803-8";
       await renewSession();
       const [session, data] = await Promise.all([apiFetch("/api/session"), apiFetch("/api/dashboard")]);
       dashboard = data;
+      currentUser = session.user;
       articles.setSession(session.user);
+      const canEdit = currentUser.role === "editor";
+      $("trashButton").hidden = !canEdit;
+      $("exportButton").hidden = !canEdit;
       $("userAvatar").src = session.user.avatar || "";
       $("userName").textContent = session.user.name || session.user.login;
       [...new Set(dashboard.trades.map((trade) => trade.instrument))].sort().forEach((value) => {
@@ -838,7 +856,7 @@ import { initArticles } from "./articles.js?v=20260803-8";
   }
 
   $("loginButton").addEventListener("click", login);
-  $("logoutButton").addEventListener("click", () => { clearToken(); clearAttachmentCache(); setAuthVisible(true); });
+  $("logoutButton").addEventListener("click", logout);
   $("trashButton").addEventListener("click", openTrashDrawer);
   $("exportButton").addEventListener("click", exportBackup);
   Object.values(selects).forEach((select) => select.addEventListener("change", () => { ledgerPage = 1; render(); }));
@@ -883,11 +901,6 @@ import { initArticles } from "./articles.js?v=20260803-8";
     event.preventDefault();
     const trade = dashboard?.trades?.find((row) => row.tradeId === activeTradeId);
     if (trade) uploadAttachmentFiles(files, trade);
-  });
-  window.addEventListener("storage", (event) => {
-    if (event.key !== TOKEN_KEY) return;
-    token = event.newValue || "";
-    if (!token) setAuthVisible(true);
   });
   window.addEventListener("resize", () => {
     const nextCompact = matchMedia("(max-width: 760px)").matches;

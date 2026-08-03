@@ -32,6 +32,16 @@ CREATE TABLE IF NOT EXISTS oauth_receipts (
 
 CREATE INDEX IF NOT EXISTS idx_oauth_receipts_expires_at ON oauth_receipts(expires_at);
 
+-- Short-lived JWTs can be revoked immediately on logout or refresh.
+CREATE TABLE IF NOT EXISTS revoked_sessions (
+  jti TEXT PRIMARY KEY,
+  login TEXT NOT NULL,
+  expires_at INTEGER NOT NULL,
+  revoked_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_revoked_sessions_expires_at ON revoked_sessions(expires_at);
+
 CREATE TABLE IF NOT EXISTS trade_attachments (
   id TEXT PRIMARY KEY,
   trade_id TEXT NOT NULL,

@@ -56,10 +56,13 @@ async function ensureTradesExist(env, tradeIds) {
   if (missing.length) throw new Error(`关联交易不存在：${missing.join("、")}`);
 }
 
-async function articleWithAssets(env, articleId, { includeDeleted = false } = {}) {
+async function articleWithAssets(env, articleId, { includeDeleted = false, onlyReferencedImages = false } = {}) {
   const row = await env.DB.prepare(`SELECT ${articleColumns} FROM articles WHERE id = ?1${includeDeleted ? "" : " AND deleted_at IS NULL"}`).bind(articleId).first();
   if (!row) return null;
-  const images = await env.DB.prepare("SELECT id, article_id, file_name, mime_type, byte_size, created_by, created_at FROM article_images WHERE article_id = ?1 ORDER BY created_at").bind(articleId).all();
+  const imageSql = onlyReferencedImages
+    ? "SELECT i.id, i.article_id, i.file_name, i.mime_type, i.byte_size, i.created_by, i.created_at FROM article_images i JOIN articles a ON a.id = i.article_id WHERE i.article_id = ?1 AND a.deleted_at IS NULL AND instr(a.content_md, 'article-image:' || i.id) > 0 ORDER BY i.created_at"
+    : "SELECT id, article_id, file_name, mime_type, byte_size, created_by, created_at FROM article_images WHERE article_id = ?1 ORDER BY created_at";
+  const images = await env.DB.prepare(imageSql).bind(articleId).all();
   return { ...parseArticleRow(row), images: (images.results || []).map(imageMeta) };
 }
 
@@ -89,6 +92,7 @@ export async function handleArticleRequest(request, env, user, url, helpers) {
 
   if (path === "/api/articles" && request.method === "GET") {
     const deleted = url.searchParams.get("deleted") === "1";
+    if (deleted && user.role !== "editor") return json(request, env, { error: "当前账号无权查看随笔回收站" }, 403);
     const rows = await env.DB.prepare(`SELECT ${summaryColumns} FROM articles WHERE deleted_at IS ${deleted ? "NOT " : ""}NULL ORDER BY updated_at DESC`).all();
     return json(request, env, { articles: (rows.results || []).map((row) => parseArticleRow(row, { includeContent: false })) });
   }
@@ -111,6 +115,7 @@ export async function handleArticleRequest(request, env, user, url, helpers) {
   }
 
   if (path === "/api/articles/export" && request.method === "GET") {
+    if (user.role !== "editor") return json(request, env, { error: "当前账号无权导出完整随笔备份" }, 403);
     const rows = await env.DB.prepare(`SELECT ${articleColumns} FROM articles ORDER BY created_at`).all();
     const versions = await env.DB.prepare("SELECT article_id, revision, title, content_md, status, tags_json, trade_ids_json, created_by, created_at FROM article_versions ORDER BY article_id, revision").all();
     const images = await env.DB.prepare("SELECT id, article_id, file_name, mime_type, byte_size, created_by, created_at FROM article_images ORDER BY article_id, created_at").all();
@@ -125,7 +130,9 @@ export async function handleArticleRequest(request, env, user, url, helpers) {
 
   const articleItem = path.match(new RegExp(`^/api/articles/${uuidPart}$`, "i"));
   if (articleItem && request.method === "GET") {
-    const article = await articleWithAssets(env, articleItem[1], { includeDeleted: url.searchParams.get("deleted") === "1" });
+    const includeDeleted = url.searchParams.get("deleted") === "1";
+    if (includeDeleted && user.role !== "editor") return json(request, env, { error: "当前账号无权查看回收站随笔" }, 403);
+    const article = await articleWithAssets(env, articleItem[1], { includeDeleted, onlyReferencedImages: user.role !== "editor" });
     return article ? json(request, env, { article }) : json(request, env, { error: "随笔不存在" }, 404);
   }
   if (articleItem && request.method === "PUT") {
@@ -155,12 +162,14 @@ export async function handleArticleRequest(request, env, user, url, helpers) {
 
   const versions = path.match(new RegExp(`^/api/articles/${uuidPart}/versions$`, "i"));
   if (versions && request.method === "GET") {
+    if (user.role !== "editor") return json(request, env, { error: "当前账号无权查看随笔历史版本" }, 403);
     const rows = await env.DB.prepare("SELECT article_id, revision, title, status, tags_json, trade_ids_json, created_by, created_at FROM article_versions WHERE article_id = ?1 ORDER BY revision DESC").bind(versions[1]).all();
     return json(request, env, { versions: (rows.results || []).map((row) => parseArticleVersionRow(row)) });
   }
 
   const versionItem = path.match(new RegExp(`^/api/articles/${uuidPart}/versions/(\\d+)$`, "i"));
   if (versionItem && request.method === "GET") {
+    if (user.role !== "editor") return json(request, env, { error: "当前账号无权查看随笔历史版本" }, 403);
     const row = await env.DB.prepare("SELECT article_id, revision, title, content_md, status, tags_json, trade_ids_json, created_by, created_at FROM article_versions WHERE article_id = ?1 AND revision = ?2").bind(versionItem[1], Number(versionItem[2])).first();
     return row ? json(request, env, { version: parseArticleVersionRow(row, { includeContent: true }) }) : json(request, env, { error: "历史版本不存在" }, 404);
   }
@@ -202,7 +211,10 @@ export async function handleArticleRequest(request, env, user, url, helpers) {
 
   const imageItem = path.match(new RegExp(`^/api/article-images/${uuidPart}$`, "i"));
   if (imageItem && request.method === "GET") {
-    const row = await env.DB.prepare("SELECT mime_type, byte_size, image_data FROM article_images WHERE id = ?1").bind(imageItem[1]).first();
+    const sql = user.role === "editor"
+      ? "SELECT mime_type, byte_size, image_data FROM article_images WHERE id = ?1"
+      : "SELECT i.mime_type, i.byte_size, i.image_data FROM article_images i JOIN articles a ON a.id = i.article_id WHERE i.id = ?1 AND a.deleted_at IS NULL AND instr(a.content_md, 'article-image:' || i.id) > 0";
+    const row = await env.DB.prepare(sql).bind(imageItem[1]).first();
     if (!row) return json(request, env, { error: "随笔图片不存在" }, 404);
     return new Response(new Uint8Array(row.image_data), { status: 200, headers: binaryHeaders(request, env, row.mime_type, row.byte_size) });
   }

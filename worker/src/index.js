@@ -2,7 +2,7 @@ import { githubAccessRole, isAllowedGithubLogin } from "./access.js";
 import { handleArticleRequest } from "./articles.js";
 
 const encoder = new TextEncoder();
-const SESSION_TTL_SECONDS = 60 * 60 * 24 * 30;
+const SESSION_TTL_SECONDS = 60 * 60 * 8;
 const MAX_ATTACHMENT_BYTES = 1_700_000;
 const MAX_ATTACHMENTS_PER_TRADE = 5;
 const ALLOWED_IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);
@@ -50,10 +50,11 @@ async function verifyState(state, secret) {
 }
 
 async function issueToken(user, secret) {
+  const now = Math.floor(Date.now() / 1000);
   const header = base64url(JSON.stringify({ alg: "HS256", typ: "JWT" }));
   const payload = base64url(JSON.stringify({
     sub: String(user.id || user.sub), login: user.login, name: user.name || user.login, avatar: user.avatar_url || user.avatar || "",
-    iat: Math.floor(Date.now() / 1000), exp: Math.floor(Date.now() / 1000) + SESSION_TTL_SECONDS,
+    jti: crypto.randomUUID(), iat: now, exp: now + SESSION_TTL_SECONDS,
   }));
   const value = `${header}.${payload}`;
   return `${value}.${await hmac(value, secret)}`;
@@ -68,7 +69,10 @@ async function verifyToken(request, env) {
   try {
     const claims = JSON.parse(new TextDecoder().decode(decode64url(payload)));
     const role = githubAccessRole(claims.login, env);
-    if (claims.exp < Math.floor(Date.now() / 1000) || !role) return null;
+    if (!claims.jti || claims.exp < Math.floor(Date.now() / 1000) || !role) return null;
+    const revoked = await env.DB.prepare("SELECT jti FROM revoked_sessions WHERE jti = ?1 AND expires_at >= ?2")
+      .bind(claims.jti, Math.floor(Date.now() / 1000)).first();
+    if (revoked) return null;
     return { ...claims, role };
   } catch { return null; }
 }
@@ -88,7 +92,7 @@ function attachmentHeaders(request, env, mimeType, byteSize) {
   return {
     "Content-Type": mimeType,
     "Content-Length": String(byteSize),
-    "Cache-Control": "private, max-age=31536000, immutable",
+    "Cache-Control": "private, no-store",
     "X-Content-Type-Options": "nosniff",
     ...corsHeaders(request, env),
   };
@@ -146,7 +150,7 @@ function cleanOverride(value) {
   return result;
 }
 
-async function loadDashboard(env) {
+async function loadDashboard(env, { includeDeleted = true } = {}) {
   const datasetRow = await env.DB.prepare("SELECT payload, updated_at FROM dataset WHERE id = 1").first();
   if (!datasetRow) return null;
   const data = JSON.parse(datasetRow.payload);
@@ -187,7 +191,16 @@ async function loadDashboard(env) {
     .filter((trade) => deletedById.has(trade.tradeId))
     .map((trade) => ({ ...trade, deletedAt: deletedById.get(trade.tradeId) }))
     .sort((a, b) => String(b.deletedAt).localeCompare(String(a.deletedAt)));
-  return { ...data, meta: { ...(data.meta || {}), cloudUpdatedAt: latest }, trades, deletedTrades };
+  return { ...data, meta: { ...(data.meta || {}), cloudUpdatedAt: latest }, trades, deletedTrades: includeDeleted ? deletedTrades : [] };
+}
+
+async function revokeSession(env, user) {
+  const now = Math.floor(Date.now() / 1000);
+  await env.DB.batch([
+    env.DB.prepare("INSERT OR REPLACE INTO revoked_sessions (jti, login, expires_at, revoked_at) VALUES (?1, ?2, ?3, ?4)")
+      .bind(user.jti, user.login, user.exp, now),
+    env.DB.prepare("DELETE FROM revoked_sessions WHERE expires_at < ?1").bind(now),
+  ]);
 }
 
 async function handleOAuthLogin(request, env) {
@@ -262,7 +275,12 @@ export default {
     if (url.pathname === "/api/session" && request.method === "GET") return json(request, env, { user: { login: user.login, name: user.name, avatar: user.avatar, role: user.role } });
     if (url.pathname === "/api/session/refresh" && request.method === "POST") {
       const token = await issueToken(user, env.JWT_SECRET);
+      await revokeSession(env, user);
       return json(request, env, { token, expiresAt: new Date((Math.floor(Date.now() / 1000) + SESSION_TTL_SECONDS) * 1000).toISOString() });
+    }
+    if (url.pathname === "/api/session/logout" && request.method === "POST") {
+      await revokeSession(env, user);
+      return json(request, env, { ok: true });
     }
     if (user.role !== "editor" && !["GET", "HEAD"].includes(request.method)) {
       return json(request, env, { error: "当前账号仅有浏览权限" }, 403);
@@ -276,10 +294,11 @@ export default {
       if (articleResponse) return articleResponse;
     }
     if (url.pathname === "/api/dashboard" && request.method === "GET") {
-      const dashboard = await loadDashboard(env);
+      const dashboard = await loadDashboard(env, { includeDeleted: user.role === "editor" });
       return dashboard ? json(request, env, dashboard) : json(request, env, { error: "云端底稿尚未初始化" }, 503);
     }
     if (url.pathname === "/api/export" && request.method === "GET") {
+      if (user.role !== "editor") return json(request, env, { error: "当前账号无权导出完整备份" }, 403);
       const dashboard = await loadDashboard(env);
       return json(request, env, dashboard || {}, 200, { "Content-Disposition": "attachment; filename=trade-review-cloud-export.json" });
     }
@@ -311,7 +330,10 @@ export default {
 
     const attachmentItem = url.pathname.match(/^\/api\/attachments\/([0-9a-f-]{36})$/i);
     if (attachmentItem && request.method === "GET") {
-      const row = await env.DB.prepare("SELECT mime_type, byte_size, image_data FROM trade_attachments WHERE id = ?1").bind(attachmentItem[1]).first();
+      const sql = user.role === "editor"
+        ? "SELECT mime_type, byte_size, image_data FROM trade_attachments WHERE id = ?1"
+        : "SELECT a.mime_type, a.byte_size, a.image_data FROM trade_attachments a LEFT JOIN deleted_trades d ON d.trade_id = a.trade_id WHERE a.id = ?1 AND d.trade_id IS NULL";
+      const row = await env.DB.prepare(sql).bind(attachmentItem[1]).first();
       if (!row) return json(request, env, { error: "复盘图不存在" }, 404);
       return new Response(new Uint8Array(row.image_data), { status: 200, headers: attachmentHeaders(request, env, row.mime_type, row.byte_size) });
     }

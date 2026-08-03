@@ -249,7 +249,10 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
   }
 
   async function loadSummaries() {
-    const [active, deleted] = await Promise.all([apiFetch("/api/articles"), apiFetch("/api/articles?deleted=1")]);
+    const [active, deleted] = await Promise.all([
+      apiFetch("/api/articles"),
+      canEdit() ? apiFetch("/api/articles?deleted=1") : Promise.resolve({ articles: [] }),
+    ]);
     summaries = active.articles || [];
     deletedSummaries = deleted.articles || [];
     loaded = true;
@@ -296,7 +299,7 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
     $("articleEditButton").hidden = !canEdit() || Boolean(article.deletedAt);
     $("articleDeleteButton").hidden = !canEdit();
     $("articleDeleteButton").textContent = article.deletedAt ? "恢复随笔" : "移入回收站";
-    $("articleHistoryButton").hidden = Boolean(article.deletedAt);
+    $("articleHistoryButton").hidden = !canEdit() || Boolean(article.deletedAt);
     renderTradeLinks(article);
     hydrateArticleImages($("articleMarkdown"));
     renderList();
@@ -613,7 +616,12 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
       currentUser = user;
       $("newArticleButton").hidden = !canEdit();
       $("articleImportInput").closest("label").hidden = !canEdit();
+      $("articleTrashButton").hidden = !canEdit();
+      $("articleExportAll").hidden = !canEdit();
       $("articleImageInput").disabled = !canEdit();
+      $("articleEmpty").querySelector("p").textContent = canEdit()
+        ? "也可以新建或导入 Markdown 文件。"
+        : "请选择左侧随笔进行阅读。";
     },
     route,
     showSection,
