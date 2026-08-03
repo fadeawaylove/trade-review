@@ -1,6 +1,6 @@
 import { buildEquityChartModel, chartWidthForRange, resolveChartRange } from "./equity-chart.js?v=20260723-1";
 import { buildEvidenceCarouselState } from "./evidence-carousel.js?v=20260721-1";
-import { clearAttachmentCache, loadAttachmentBlob, removeAttachmentFromCache } from "./attachment-cache.js?v=20260803-2";
+import { clearAttachmentCache, loadAttachmentBlob, removeAttachmentFromCache } from "./attachment-cache.js?v=20260804-1";
 import { paginateLedgerRows } from "./ledger-pagination.js?v=20260729-1";
 import { initArticles } from "./articles.js?v=20260803-9";
 
@@ -9,7 +9,7 @@ import { initArticles } from "./articles.js?v=20260803-9";
   const API = String(CONFIG.apiBase || "").replace(/\/$/, "");
   const $ = (id) => document.getElementById(id);
   const TOKEN_KEY = "tradeReviewToken";
-  const RENEW_INTERVAL_MS = 4 * 60 * 60 * 1000;
+  const RENEW_INTERVAL_MS = 24 * 60 * 60 * 1000;
   const filters = ["instrument", "direction", "session", "result"];
   const selects = Object.fromEntries(filters.map((name) => [name, $(`${name}Filter`)]));
   let dashboard = null;
@@ -50,17 +50,19 @@ import { initArticles } from "./articles.js?v=20260803-9";
 
   function readToken() {
     try {
-      localStorage.removeItem(TOKEN_KEY);
-      return sessionStorage.getItem(TOKEN_KEY) || "";
+      const stored = localStorage.getItem(TOKEN_KEY) || sessionStorage.getItem(TOKEN_KEY) || "";
+      if (stored) localStorage.setItem(TOKEN_KEY, stored);
+      sessionStorage.removeItem(TOKEN_KEY);
+      return stored;
     } catch { return ""; }
   }
 
   function saveToken(value) {
     token = value || "";
     try {
-      if (token) sessionStorage.setItem(TOKEN_KEY, token);
-      else sessionStorage.removeItem(TOKEN_KEY);
-      localStorage.removeItem(TOKEN_KEY);
+      if (token) localStorage.setItem(TOKEN_KEY, token);
+      else localStorage.removeItem(TOKEN_KEY);
+      sessionStorage.removeItem(TOKEN_KEY);
     } catch {
       // Keep the token in memory when browser storage is unavailable.
     }
@@ -828,7 +830,6 @@ import { initArticles } from "./articles.js?v=20260803-9";
   }
 
   async function start() {
-    await clearAttachmentCache();
     parseLoginToken();
     if (!token) { setAuthVisible(true); return; }
     if (!API || API.includes("__API_BASE__")) { setAuthVisible(true, "云端服务尚未完成配置。"); return; }

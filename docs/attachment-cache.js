@@ -1,5 +1,5 @@
 export const ATTACHMENT_CACHE_NAME = "trade-review-attachments-v2";
-export const ATTACHMENT_CACHE_TTL_MS = 5 * 60 * 1000;
+export const ATTACHMENT_CACHE_TTL_MS = 365 * 24 * 60 * 60 * 1000;
 
 const LEGACY_ATTACHMENT_CACHE_NAMES = ["trade-review-attachments-v1"];
 

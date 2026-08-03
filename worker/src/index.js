@@ -2,7 +2,7 @@ import { githubAccessRole, isAllowedGithubLogin } from "./access.js";
 import { handleArticleRequest } from "./articles.js";
 
 const encoder = new TextEncoder();
-const SESSION_TTL_SECONDS = 60 * 60 * 8;
+const SESSION_TTL_SECONDS = 60 * 60 * 24 * 30;
 const MAX_ATTACHMENT_BYTES = 1_700_000;
 const MAX_ATTACHMENTS_PER_TRADE = 5;
 const ALLOWED_IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);
@@ -92,7 +92,7 @@ function attachmentHeaders(request, env, mimeType, byteSize) {
   return {
     "Content-Type": mimeType,
     "Content-Length": String(byteSize),
-    "Cache-Control": "private, no-store",
+    "Cache-Control": "private, max-age=31536000, immutable",
     "X-Content-Type-Options": "nosniff",
     ...corsHeaders(request, env),
   };
