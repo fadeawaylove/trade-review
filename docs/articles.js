@@ -11,6 +11,14 @@ const $ = (id) => document.getElementById(id);
 const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[char]));
 const VDITOR_CDN = new URL("./vendor/vditor", import.meta.url).href.replace(/\/$/, "");
 
+export function dismissVditorImagePreview(root = document) {
+  const preview = root.querySelector?.(".vditor-img");
+  if (!preview) return false;
+  preview.remove();
+  if (root.body) root.body.style.overflow = "";
+  return true;
+}
+
 function downloadBlob(blob, fileName) {
   const link = document.createElement("a");
   link.href = URL.createObjectURL(blob);
@@ -575,6 +583,22 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
     }
     if (event.key === "Escape") cancelEditor();
   });
+  document.addEventListener("click", (event) => {
+    const target = event.target;
+    if (!target?.closest?.(".vditor-img")) return;
+    const imageStage = target.closest(".vditor-img__img");
+    const toolbarButton = target.closest(".vditor-img__btn");
+    if (!imageStage && (!toolbarButton || toolbarButton.hasAttribute("data-deg"))) return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (dismissVditorImagePreview()) articleEditorInstance?.focus();
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape" || !dismissVditorImagePreview()) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    articleEditorInstance?.focus();
+  }, true);
   $("articleCancelButton").addEventListener("click", cancelEditor);
   $("articleHistoryClose").addEventListener("click", () => { $("articleHistory").hidden = true; });
   $("articleImageInput").addEventListener("change", (event) => { uploadImages(event.target.files || []); event.target.value = ""; });
