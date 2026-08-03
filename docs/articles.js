@@ -9,6 +9,7 @@ import {
 
 const $ = (id) => document.getElementById(id);
 const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[char]));
+const VDITOR_CDN = new URL("./vendor/vditor", import.meta.url).href.replace(/\/$/, "");
 
 function downloadBlob(blob, fileName) {
   const link = document.createElement("a");
@@ -31,6 +32,10 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
   let dirty = false;
   let imageObjectUrls = [];
   let loaded = false;
+  let articleEditorInstance = null;
+  let articleEditorPromise = null;
+  let pendingEditorValue = "";
+  let syncingEditor = false;
 
   const canEdit = () => currentUser?.role === "editor";
 
@@ -42,6 +47,67 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
   function setDirty(value) {
     dirty = Boolean(value);
     $("articleSaveState").textContent = dirty ? "有未保存修改" : current ? `云端版本 ${current.revision}` : "尚未保存";
+  }
+
+  function ensureArticleEditor(value = "") {
+    pendingEditorValue = value;
+    if (articleEditorInstance) {
+      syncingEditor = true;
+      articleEditorInstance.setValue(value, true);
+      syncingEditor = false;
+      return Promise.resolve(articleEditorInstance);
+    }
+    if (articleEditorPromise) return articleEditorPromise;
+    if (!window.Vditor) return Promise.reject(new Error("Markdown 编辑器资源加载失败，请刷新页面重试"));
+
+    $("articleSaveButton").disabled = true;
+    $("articleSaveState").textContent = "正在加载专业编辑器…";
+    articleEditorPromise = new Promise((resolve, reject) => {
+      try {
+        syncingEditor = true;
+        const editor = new window.Vditor("articleContentEditor", {
+          cdn: VDITOR_CDN,
+          lang: "zh_CN",
+          mode: "ir",
+          theme: "classic",
+          height: 680,
+          minHeight: 520,
+          placeholder: "从一个想法开始。输入 / 或使用上方工具栏插入标题、列表、引用、代码和表格……",
+          typewriterMode: true,
+          cache: { enable: false },
+          counter: { enable: true, type: "text" },
+          resize: { enable: true },
+          outline: { enable: true, position: "right" },
+          toolbarConfig: { pin: true },
+          toolbar: [
+            "headings", "bold", "italic", "strike", "|",
+            "line", "quote", "list", "ordered-list", "check", "|",
+            "code", "inline-code", "link", "table", "|",
+            "undo", "redo", "|", "edit-mode", "both", "preview", "fullscreen", "outline",
+          ],
+          preview: {
+            delay: 250,
+            hljs: { enable: true, lineNumber: true, style: "github" },
+            markdown: { autoSpace: true, fixTermTypo: true, toc: true, footnotes: true },
+          },
+          after: () => {
+            articleEditorInstance = editor;
+            articleEditorInstance.setValue(pendingEditorValue, true);
+            syncingEditor = false;
+            $("articleSaveButton").disabled = false;
+            if (!dirty) setDirty(false);
+            resolve(editor);
+          },
+          input: () => { if (articleEditorInstance && !syncingEditor) setDirty(true); },
+          ctrlEnter: () => $("articleEditor").requestSubmit(),
+        });
+      } catch (error) {
+        syncingEditor = false;
+        articleEditorPromise = null;
+        reject(error);
+      }
+    });
+    return articleEditorPromise;
   }
 
   function setHash(hash, mode = "push") {
@@ -130,6 +196,7 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
 
   function renderReader(article) {
     revokeImages();
+    $("articleEditor").closest(".article-layout").classList.remove("is-editing");
     $("articleEmpty").hidden = true;
     $("articleEditor").hidden = true;
     $("articleHistory").hidden = true;
@@ -188,38 +255,22 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
     $("articleReader").hidden = true;
     $("articleHistory").hidden = true;
     $("articleEditor").hidden = false;
+    $("articleEditor").closest(".article-layout").classList.add("is-editing");
     $("articleEditorHeading").textContent = article ? "编辑随笔" : "新建随笔";
     $("articleTitleInput").value = article?.title || "";
     $("articleStatusInput").value = article?.status || "draft";
     $("articleTagsInput").value = (article?.tags || []).join("，");
-    $("articleContentInput").value = article?.contentMd || "";
     renderTradePicker(article?.tradeIds || []);
     renderEditorImages(article?.images || []);
-    showSource();
     setDirty(false);
     $("articleTitleInput").focus();
-  }
-
-  function showSource() {
-    $("articleContentInput").hidden = false;
-    $("articlePreview").hidden = true;
-    $("articleSourceTab").setAttribute("aria-pressed", "true");
-    $("articlePreviewTab").setAttribute("aria-pressed", "false");
-  }
-
-  function showPreview() {
-    $("articlePreview").innerHTML = renderArticleMarkdown($("articleContentInput").value);
-    $("articleContentInput").hidden = true;
-    $("articlePreview").hidden = false;
-    $("articleSourceTab").setAttribute("aria-pressed", "false");
-    $("articlePreviewTab").setAttribute("aria-pressed", "true");
-    hydrateArticleImages($("articlePreview"));
+    ensureArticleEditor(article?.contentMd || "").catch((error) => notify(error.message, true));
   }
 
   function editorPayload() {
     return {
       title: $("articleTitleInput").value,
-      contentMd: $("articleContentInput").value,
+      contentMd: articleEditorInstance ? articleEditorInstance.getValue() : pendingEditorValue,
       status: $("articleStatusInput").value,
       tags: $("articleTagsInput").value.split(/[，,]/).map((tag) => tag.trim()).filter(Boolean),
       tradeIds: [...$("articleTradePicker").querySelectorAll("input:checked")].map((input) => input.value),
@@ -257,9 +308,8 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
           body: prepared.blob,
           headers: { "Content-Type": prepared.blob.type, "X-File-Name": encodeURIComponent(prepared.fileName) },
         });
-        const textarea = $("articleContentInput");
-        const insertion = `${textarea.value && !textarea.value.endsWith("\n") ? "\n\n" : ""}${result.markdown}\n`;
-        textarea.setRangeText(insertion, textarea.selectionStart, textarea.selectionEnd, "end");
+        if (!articleEditorInstance) throw new Error("Markdown 编辑器尚未准备完成");
+        articleEditorInstance.insertValue(`\n\n${result.markdown}\n`);
         current.images = [...(current.images || []), result.image];
         renderEditorImages(current.images);
         setDirty(true);
@@ -314,6 +364,7 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
     current = null;
     $("articleReader").hidden = true;
     $("articleEditor").hidden = true;
+    $("articleEditor").closest(".article-layout").classList.remove("is-editing");
     $("articleEmpty").hidden = false;
     renderList();
   }
@@ -333,7 +384,12 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
   function cancelEditor() {
     if (dirty && !confirm("放弃尚未保存的修改？")) return;
     setDirty(false);
-    current ? renderReader(current) : ($("articleEditor").hidden = true, $("articleEmpty").hidden = false);
+    if (current) renderReader(current);
+    else {
+      $("articleEditor").hidden = true;
+      $("articleEditor").closest(".article-layout").classList.remove("is-editing");
+      $("articleEmpty").hidden = false;
+    }
   }
 
   function exportCurrent() {
@@ -376,13 +432,17 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
   $("articleHistoryButton").addEventListener("click", openHistory);
   $("articleDeleteButton").addEventListener("click", () => current?.deletedAt ? restoreCurrent() : deleteCurrent());
   $("articleEditor").addEventListener("submit", saveArticle);
+  $("articleEditor").addEventListener("keydown", (event) => {
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") {
+      event.preventDefault();
+      $("articleEditor").requestSubmit();
+    }
+  });
   $("articleCancelButton").addEventListener("click", cancelEditor);
-  $("articleSourceTab").addEventListener("click", showSource);
-  $("articlePreviewTab").addEventListener("click", showPreview);
   $("articleHistoryClose").addEventListener("click", () => { $("articleHistory").hidden = true; });
   $("articleImageInput").addEventListener("change", (event) => { uploadImages(event.target.files || []); event.target.value = ""; });
   $("articleExportAll").addEventListener("click", exportAll);
-  ["articleTitleInput", "articleStatusInput", "articleTagsInput", "articleContentInput", "articleTradePicker"].forEach((id) => $(id).addEventListener("input", () => setDirty(true)));
+  ["articleTitleInput", "articleStatusInput", "articleTagsInput", "articleTradePicker"].forEach((id) => $(id).addEventListener("input", () => setDirty(true)));
   window.addEventListener("beforeunload", (event) => { if (dirty) { event.preventDefault(); event.returnValue = ""; } });
   window.addEventListener("popstate", () => { route().catch((error) => notify(error.message, true)); });
 

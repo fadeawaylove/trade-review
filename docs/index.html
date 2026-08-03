@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="theme-color" content="#f6f1e7">
   <meta name="description" content="私人期货日内交易复盘台">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src https://trade-review-api.dengrunting.workers.dev; img-src 'self' blob: data: https://avatars.githubusercontent.com https://trade-review-api.dengrunting.workers.dev; style-src 'self'; script-src 'self'; base-uri 'none'; form-action 'none'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src https://trade-review-api.dengrunting.workers.dev; img-src 'self' blob: data: https://avatars.githubusercontent.com https://trade-review-api.dengrunting.workers.dev; style-src 'self' 'unsafe-inline'; script-src 'self'; base-uri 'none'; form-action 'none'">
   <title>日内交易复盘台</title>
   <link rel="icon" type="image/svg+xml" href="./favicon.svg?v=20260720-1">
   <link rel="icon" type="image/png" sizes="32x32" href="./favicon-32.png?v=20260720-1">
@@ -13,7 +13,8 @@
   <link rel="manifest" href="./site.webmanifest">
   <link rel="stylesheet" href="./styles.css?v=20260729-2">
   <link rel="stylesheet" href="./readability.css?v=20260729-3">
-  <link rel="stylesheet" href="./articles.css?v=20260803-1">
+  <link rel="stylesheet" href="./vendor/vditor/dist/index.css?v=3.11.2">
+  <link rel="stylesheet" href="./articles.css?v=20260803-3">
 </head>
 <body>
   <div class="grain" aria-hidden="true"></div>
@@ -185,18 +186,20 @@
             </div>
             <form id="articleEditor" hidden>
               <div class="article-editor-head"><strong id="articleEditorHeading">编辑随笔</strong><span id="articleSaveState">尚未保存</span></div>
-              <label><span>标题</span><input id="articleTitleInput" maxlength="120" required></label>
+              <label><span>标题</span><input id="articleTitleInput" maxlength="120" placeholder="给这篇随笔起一个清晰的标题" required></label>
               <div class="article-editor-meta">
                 <label><span>状态</span><select id="articleStatusInput"><option value="draft">草稿</option><option value="final">已整理</option></select></label>
                 <label><span>标签</span><input id="articleTagsInput" placeholder="用逗号分隔，最多 10 个"></label>
               </div>
-              <div class="article-editor-tabs" role="tablist"><button id="articleSourceTab" type="button" aria-pressed="true">Markdown</button><button id="articlePreviewTab" type="button" aria-pressed="false">预览</button></div>
-              <textarea id="articleContentInput" aria-label="Markdown 正文" spellcheck="false"></textarea>
-              <div class="article-markdown article-editor-preview" id="articlePreview" hidden></div>
-              <div class="article-editor-assets">
-                <section><h2>插入图片</h2><p>上传后会在光标处插入私有图片语法。</p><label class="ghost-button article-image-upload">选择图片<input id="articleImageInput" type="file" accept="image/png,image/jpeg,image/webp" multiple></label><div id="articleImages"></div></section>
-                <section><h2>关联交易</h2><p>从现有交易中选择，文章与复盘可以相互追溯。</p><div class="article-trade-picker" id="articleTradePicker"></div></section>
-              </div>
+              <div class="article-editor-guide"><span>支持即时渲染、所见即所得和分屏预览</span><span>Ctrl + Enter 保存 · 工具栏可切换全屏与大纲</span></div>
+              <div class="article-vditor" id="articleContentEditor" aria-label="Markdown 正文编辑器"></div>
+              <details class="article-editor-extras">
+                <summary>图片与关联交易</summary>
+                <div class="article-editor-assets">
+                  <section><h2>插入图片</h2><p>上传后会在当前光标处插入私有图片。</p><label class="ghost-button article-image-upload">选择图片<input id="articleImageInput" type="file" accept="image/png,image/jpeg,image/webp" multiple></label><div id="articleImages"></div></section>
+                  <section><h2>关联交易</h2><p>从现有交易中选择，文章与复盘可以相互追溯。</p><div class="article-trade-picker" id="articleTradePicker"></div></section>
+                </div>
+              </details>
               <div class="article-editor-actions"><button class="ghost-button" id="articleCancelButton" type="button">取消</button><button class="primary-button" id="articleSaveButton" type="submit">保存随笔</button></div>
             </form>
             <aside class="article-history" id="articleHistory" hidden>
@@ -244,6 +247,7 @@
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
   <script src="./config.js"></script>
-  <script type="module" src="./app.js?v=20260729-1"></script>
+  <script src="./vendor/vditor/dist/index.min.js?v=3.11.2"></script>
+  <script type="module" src="./app.js?v=20260803-3"></script>
 </body>
 </html>
