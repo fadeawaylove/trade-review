@@ -11,7 +11,6 @@ import {
   privateArticleImageIds,
   replacePrivateArticleImages,
   restorePrivateArticleImages,
-  tradeIdsFromMarkdown,
 } from "./article-references.js?v=20260804-1";
 
 const $ = (id) => document.getElementById(id);
@@ -53,7 +52,6 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
   let pendingEditorValue = "";
   let syncingEditor = false;
   let previewTimer = null;
-  let selectedTradeIds = new Set();
   const pendingPastedImages = new Map();
   const editorPrivateImageSources = new Map();
   const editorPrivateImageErrors = new Map();
@@ -178,7 +176,15 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
           toolbar: [
             "headings", "bold", "italic", "|",
             "quote", "list", "ordered-list", "check", "|",
-            "upload", "link", "table", "code", "|",
+            "upload",
+            {
+              name: "trade-reference",
+              tip: "插入交易",
+              tipPosition: "s",
+              icon: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2.5" y="4.5" width="19" height="15" rx="4" fill="none" stroke="currentColor" stroke-width="1.8"></rect><text x="12" y="15.5" text-anchor="middle" fill="currentColor" font-size="9" font-weight="800">TR</text></svg>',
+              click: () => toggleTradePicker(),
+            },
+            "link", "table", "code", "|",
             "undo", "redo", "fullscreen",
           ],
           upload: {
@@ -210,6 +216,7 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
             articleEditorInstance = editor;
             articleEditorInstance.setValue(pendingEditorValue, true);
             syncingEditor = false;
+            mountTradeToolbarPopover();
             $("articleSaveButton").disabled = false;
             updateLivePreview(pendingEditorValue);
             if (!dirty) setDirty(false);
@@ -301,13 +308,6 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
     finally { summaryLoadPromise = null; }
   }
 
-  function renderTradeLinks(article) {
-    const trades = getDashboard()?.trades || [];
-    const linked = (article.tradeIds || []).map((tradeId) => trades.find((trade) => trade.tradeId === tradeId) || { tradeId });
-    $("articleTradeLinks").innerHTML = linked.length ? linked.map((trade) => `<button class="article-trade-link" type="button" data-related-trade="${esc(trade.tradeId)}">${esc(trade.tradeId)}${trade.instrument ? ` · ${esc(trade.instrument)}` : ""}</button>`).join("") : '<span class="article-list-empty">尚未关联交易</span>';
-    $("articleTradeLinks").querySelectorAll("[data-related-trade]").forEach((button) => button.addEventListener("click", () => openTrade(button.dataset.relatedTrade)));
-  }
-
   async function hydrateArticleImages(host) {
     for (const figure of host.querySelectorAll("[data-article-image-id]")) {
       try {
@@ -340,7 +340,7 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
     $("articleDeleteButton").hidden = !canEdit();
     $("articleDeleteButton").textContent = article.deletedAt ? "恢复随笔" : "移入回收站";
     $("articleHistoryButton").hidden = !canEdit() || Boolean(article.deletedAt);
-    renderTradeLinks(article);
+    toggleTradePicker(false);
     hydrateArticleImages($("articleMarkdown"));
     renderList();
   }
@@ -359,34 +359,53 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
     return [...(getDashboard()?.trades || []), ...(getDashboard()?.deletedTrades || [])];
   }
 
-  function renderTradePicker(selectedIds) {
-    if (selectedIds) selectedTradeIds = new Set(selectedIds.map((tradeId) => String(tradeId).toUpperCase()));
+  function tradeToolbarButton() {
+    return document.querySelector('#articleContentEditor .vditor-toolbar button[data-type="trade-reference"]');
+  }
+
+  function mountTradeToolbarPopover() {
+    const toolbar = document.querySelector("#articleContentEditor .vditor-toolbar");
+    const popover = $("articleTradePopover");
+    if (toolbar && popover.parentElement !== toolbar) toolbar.append(popover);
+    const button = tradeToolbarButton();
+    if (!button) return;
+    button.setAttribute("aria-haspopup", "dialog");
+    button.setAttribute("aria-controls", "articleTradePopover");
+    button.setAttribute("aria-expanded", String(!popover.hidden));
+  }
+
+  function toggleTradePicker(forceOpen) {
+    const popover = $("articleTradePopover");
+    const shouldOpen = typeof forceOpen === "boolean" ? forceOpen : popover.hidden;
+    popover.hidden = !shouldOpen;
+    const button = tradeToolbarButton();
+    if (button) button.setAttribute("aria-expanded", String(shouldOpen));
+    if (!shouldOpen) return;
+    renderTradePicker();
+    window.setTimeout(() => $("articleTradeSearch").focus(), 0);
+  }
+
+  function renderTradePicker() {
     const query = $("articleTradeSearch").value.trim().toLocaleLowerCase("zh-CN");
     const trades = articleTrades().filter((trade) => !query || [trade.tradeId, trade.instrument, trade.contract]
       .join(" ").toLocaleLowerCase("zh-CN").includes(query));
+    const markdown = (articleEditorInstance?.getValue() || pendingEditorValue).toUpperCase();
     $("articleTradePicker").innerHTML = trades.length ? trades.map((trade) => `
       <div class="article-trade-picker-row">
-        <label><input type="checkbox" value="${esc(trade.tradeId)}" ${selectedTradeIds.has(trade.tradeId) ? "checked" : ""}><span>${esc(trade.tradeId)} · ${esc(trade.instrument || "")}</span></label>
-        <button type="button" data-insert-article-trade="${esc(trade.tradeId)}">插入正文</button>
+        <button type="button" data-insert-article-trade="${esc(trade.tradeId)}" aria-pressed="${markdown.includes(`TRADE:${trade.tradeId}`)}"><span>${esc(trade.tradeId)} · ${esc(trade.instrument || trade.contract || "")}</span></button>
       </div>`).join("") : '<span class="article-list-empty">没有匹配的交易</span>';
-    $("articleTradePicker").querySelectorAll("input[type=checkbox]").forEach((input) => input.addEventListener("change", () => {
-      if (input.checked) selectedTradeIds.add(input.value);
-      else selectedTradeIds.delete(input.value);
-      setDirty(true);
-    }));
     $("articleTradePicker").querySelectorAll("[data-insert-article-trade]").forEach((button) => button.addEventListener("click", () => insertTradeReference(button.dataset.insertArticleTrade)));
   }
 
   function insertTradeReference(tradeId) {
     const trade = articleTrades().find((row) => row.tradeId === tradeId);
     if (!trade || !articleEditorInstance) { notify("Markdown 编辑器尚未准备完成", true); return; }
-    selectedTradeIds.add(trade.tradeId);
     articleEditorInstance.insertValue(`\n\n${formatTradeReference(trade)}\n\n`);
     const markdown = articleEditorInstance.getValue();
     pendingEditorValue = markdown;
-    renderTradePicker();
     setDirty(true);
     scheduleLivePreview(markdown);
+    toggleTradePicker(false);
     articleEditorInstance.focus();
     notify(`${trade.tradeId} 已插入正文`);
   }
@@ -424,7 +443,8 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
     $("articleStatusInput").value = article?.status || "draft";
     $("articleTagsInput").value = (article?.tags || []).join("，");
     $("articleTradeSearch").value = "";
-    renderTradePicker(article?.tradeIds || []);
+    renderTradePicker();
+    toggleTradePicker(false);
     renderEditorImages(article?.images || []);
     $("articleTitleInput").focus();
     const storedMarkdown = article?.contentMd || "";
@@ -455,7 +475,7 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
       contentMd,
       status: $("articleStatusInput").value,
       tags: $("articleTagsInput").value.split(/[，,]/).map((tag) => tag.trim()).filter(Boolean),
-      tradeIds: [...new Set([...selectedTradeIds, ...tradeIdsFromMarkdown(contentMd)])],
+      tradeIds: [],
       ...(current?.revision ? { revision: current.revision } : {}),
     };
   }
@@ -625,6 +645,7 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
 
   function cancelEditor() {
     if (dirty && !confirm("放弃尚未保存的修改？")) return;
+    toggleTradePicker(false);
     setDirty(false);
     if (current) renderReader(current);
     else {
@@ -678,6 +699,7 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
   $("articleDeleteButton").addEventListener("click", () => current?.deletedAt ? restoreCurrent() : deleteCurrent());
   $("articleEditor").addEventListener("submit", saveArticle);
   $("articleTradeSearch").addEventListener("input", () => renderTradePicker());
+  $("articleTradePopoverClose").addEventListener("click", () => toggleTradePicker(false));
   $("articleMarkdown").addEventListener("click", (event) => {
     const reference = event.target.closest?.("[data-article-trade-id]");
     if (reference) openTrade(reference.dataset.articleTradeId);
@@ -687,7 +709,18 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
       event.preventDefault();
       $("articleEditor").requestSubmit();
     }
+    if (event.key === "Escape" && !$("articleTradePopover").hidden) {
+      event.preventDefault();
+      toggleTradePicker(false);
+      articleEditorInstance?.focus();
+      return;
+    }
     if (event.key === "Escape") cancelEditor();
+  });
+  document.addEventListener("pointerdown", (event) => {
+    if ($("articleTradePopover").hidden) return;
+    if (event.target.closest?.("#articleTradePopover") || event.target.closest?.('[data-type="trade-reference"]')) return;
+    toggleTradePicker(false);
   });
   document.addEventListener("click", (event) => {
     const target = event.target;
@@ -710,7 +743,7 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
   $("articleImageInput").addEventListener("change", (event) => { uploadImages(event.target.files || []); event.target.value = ""; });
   $("articleExportAll").addEventListener("click", exportAll);
   $("articleTitleInput").addEventListener("input", () => { setDirty(true); updateLivePreview(articleEditorInstance?.getValue() || pendingEditorValue); });
-  ["articleStatusInput", "articleTagsInput", "articleTradePicker"].forEach((id) => $(id).addEventListener("input", () => setDirty(true)));
+  ["articleStatusInput", "articleTagsInput"].forEach((id) => $(id).addEventListener("input", () => setDirty(true)));
   window.addEventListener("beforeunload", (event) => { if (dirty) { event.preventDefault(); event.returnValue = ""; } });
   window.addEventListener("popstate", () => { route().catch((error) => notify(error.message, true)); });
 

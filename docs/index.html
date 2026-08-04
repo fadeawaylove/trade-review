@@ -14,7 +14,7 @@
   <link rel="stylesheet" href="./styles.css?v=20260729-2">
   <link rel="stylesheet" href="./readability.css?v=20260729-3">
   <link rel="stylesheet" href="./vendor/vditor/dist/index.css?v=3.11.2">
-  <link rel="stylesheet" href="./articles.css?v=20260804-1">
+  <link rel="stylesheet" href="./articles.css?v=20260804-2">
 </head>
 <body>
   <div class="grain" aria-hidden="true"></div>
@@ -182,7 +182,6 @@
               <div class="article-meta" id="articleReaderMeta"></div>
               <div class="article-tags" id="articleReaderTags"></div>
               <div class="article-markdown" id="articleMarkdown"></div>
-              <section class="article-related"><h2>关联交易</h2><div id="articleTradeLinks"></div></section>
             </div>
             <form id="articleEditor" role="dialog" aria-modal="true" aria-labelledby="articleEditorHeading" hidden>
               <header class="article-writing-toolbar">
@@ -205,6 +204,11 @@
                       <input id="articleTitleInput" maxlength="120" placeholder="无标题随笔" required>
                     </label>
                     <div class="article-vditor" id="articleContentEditor" aria-label="Markdown 正文编辑器"></div>
+                    <section class="article-trade-toolbar-popover" id="articleTradePopover" role="dialog" aria-label="插入交易" hidden>
+                      <header><strong>插入交易</strong><button id="articleTradePopoverClose" type="button" aria-label="关闭交易选择">×</button></header>
+                      <input class="article-trade-search" id="articleTradeSearch" type="search" placeholder="搜索交易编号或品种" autocomplete="off">
+                      <div class="article-trade-picker" id="articleTradePicker"></div>
+                    </section>
                   </section>
                   <section class="article-preview-pane" aria-label="实时预览区">
                     <div class="article-pane-heading"><strong>文章预览</strong><span>输入即更新</span></div>
@@ -214,18 +218,12 @@
                     </article>
                   </section>
                 </main>
-                <aside class="article-writing-inspector" aria-label="随笔设置">
-                  <div class="article-inspector-head"><span>DOCUMENT</span><h2>文章设置</h2><p>写作时只保留必要属性，正文始终是主角。</p></div>
-                  <div class="article-editor-meta">
-                    <label><span>状态</span><select id="articleStatusInput"><option value="draft">草稿</option><option value="final">已整理</option></select></label>
-                    <label><span>标签</span><input id="articleTagsInput" placeholder="例如：心态，执行"></label>
-                  </div>
-                  <div class="article-editor-assets">
-                    <section><h2>插入图片</h2><p>可直接粘贴截图，右侧立即预览，保存随笔时自动上传。</p><label class="ghost-button article-image-upload">选择图片<input id="articleImageInput" type="file" accept="image/png,image/jpeg,image/webp" multiple></label><div id="articleImages"></div></section>
-                    <section><h2>关联交易</h2><p>勾选可建立关联；“插入正文”会在当前光标处生成可点击的交易引用。</p><input class="article-trade-search" id="articleTradeSearch" type="search" placeholder="搜索交易编号或品种"><div class="article-trade-picker" id="articleTradePicker"></div></section>
-                  </div>
-                  <div class="article-shortcuts"><b>快捷键</b><span>Ctrl + S 保存</span><span>Esc 返回随笔</span></div>
-                </aside>
+                <div class="article-editor-hidden-fields" hidden>
+                  <select id="articleStatusInput" aria-label="随笔状态"><option value="draft">草稿</option><option value="final">已整理</option></select>
+                  <input id="articleTagsInput" aria-label="随笔标签">
+                  <input id="articleImageInput" type="file" accept="image/png,image/jpeg,image/webp" multiple>
+                  <div id="articleImages"></div>
+                </div>
               </div>
             </form>
             <aside class="article-history" id="articleHistory" hidden>
@@ -275,6 +273,6 @@
   <script src="./config.js"></script>
   <script src="./vendor/vditor/dist/js/icons/ant.js?v=3.11.2"></script>
   <script src="./vendor/vditor/dist/index.min.js?v=3.11.2"></script>
-  <script type="module" src="./app.js?v=20260804-3"></script>
+  <script type="module" src="./app.js?v=20260804-4"></script>
 </body>
 </html>
