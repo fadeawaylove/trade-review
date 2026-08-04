@@ -159,14 +159,14 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
   }
 
   function syncEditorPreviewScroll() {
-    const source = $("articleContentEditor").querySelector(".vditor-ir");
+    const source = $("articleContentEditor").querySelector(".vditor-ir .vditor-reset");
     const target = document.querySelector(".article-preview-document");
     if (source && target) target.scrollTop = proportionalScrollTop(source, target);
   }
 
   function mountEditorScrollSync() {
     scrollSyncCleanup?.();
-    const source = $("articleContentEditor").querySelector(".vditor-ir");
+    const source = $("articleContentEditor").querySelector(".vditor-ir .vditor-reset");
     const target = document.querySelector(".article-preview-document");
     if (!source || !target) return;
     let syncingScroll = false;
