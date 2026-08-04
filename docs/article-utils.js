@@ -16,6 +16,11 @@ export function deriveImportedArticle(fileName, contentMd) {
   return { title: (heading || fallback || "未命名随笔").slice(0, 120), contentMd: content };
 }
 
+export function preserveUnchangedMarkdown(storedMarkdown, editorBaseline, editorMarkdown) {
+  const current = String(editorMarkdown ?? "");
+  return current === String(editorBaseline ?? "") ? String(storedMarkdown ?? "") : current;
+}
+
 export function filterArticleSummaries(rows, { query = "", tag = "", status = "", deleted = false } = {}) {
   const needle = String(query).trim().toLocaleLowerCase("zh-CN");
   return (rows || []).filter((article) => {

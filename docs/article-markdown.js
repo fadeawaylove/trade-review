@@ -13,7 +13,38 @@ function safeInlineImage(value) {
   const source = String(value || "").trim();
   if (/^blob:(?:https?:\/\/|null\/)[^\s"'<>]+$/i.test(source)) return source;
   if (/^data:image\/(?:png|jpeg|webp);base64,[a-z0-9+/=]+$/i.test(source)) return source;
+  if (/^https:\/\/[^\s"'<>]+$/i.test(source)) return source;
   return "";
+}
+
+function decodeHtmlAttribute(value) {
+  return String(value ?? "").replace(/&(?:amp|quot|#39|lt|gt);/gi, (entity) => ({
+    "&amp;": "&", "&quot;": '"', "&#39;": "'", "&lt;": "<", "&gt;": ">",
+  }[entity.toLowerCase()] || entity));
+}
+
+function imageTagAttributes(value) {
+  const attributes = new Map();
+  const pattern = /([^\s=/>]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+)))?/g;
+  for (const match of String(value || "").matchAll(pattern)) {
+    attributes.set(match[1].toLowerCase(), decodeHtmlAttribute(match[2] ?? match[3] ?? match[4] ?? ""));
+  }
+  return attributes;
+}
+
+function safeImageWidth(attributes) {
+  const style = attributes.get("style") || "";
+  const zoom = style.match(/(?:^|;)\s*zoom\s*:\s*(\d+(?:\.\d+)?)%\s*(?:;|$)/i)?.[1];
+  if (zoom && Number(zoom) > 0 && Number(zoom) <= 100) return `${Number(zoom)}%`;
+  const width = (attributes.get("width") || "").trim();
+  if (/^(?:100|[1-9]?\d)%$/.test(width)) return width;
+  if (/^\d{1,4}(?:px)?$/i.test(width)) return `${parseInt(width, 10)}px`;
+  return "";
+}
+
+function imageFigure(source, alt, { title = "", width = "" } = {}) {
+  const safeAlt = alt || "随笔图片";
+  return `<figure class="article-image"><img src="${escapeHtml(source)}" alt="${escapeHtml(safeAlt)}"${title ? ` title="${escapeHtml(title)}"` : ""}${width ? ` style="width:${escapeHtml(width)}"` : ""}><figcaption>${escapeHtml(safeAlt)}</figcaption></figure>`;
 }
 
 function inlineMarkdown(value) {
@@ -21,6 +52,15 @@ function inlineMarkdown(value) {
   const hold = (html) => `\u0000${slots.push(html) - 1}\u0000`;
   let text = String(value ?? "");
   text = text.replace(/`([^`\n]+)`/g, (_match, code) => hold(`<code>${escapeHtml(code)}</code>`));
+  text = text.replace(/<img\b((?:"[^"]*"|'[^']*'|[^'">])*)\/?>/gi, (match, rawAttributes) => {
+    const attributes = imageTagAttributes(rawAttributes);
+    const source = safeInlineImage(attributes.get("src"));
+    if (!source) return match;
+    return hold(imageFigure(source, attributes.get("alt"), {
+      title: attributes.get("title"),
+      width: safeImageWidth(attributes),
+    }));
+  });
   text = text.replace(/!\[([^\]]*)\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g, (_match, alt, source) => {
     const privateImage = source.match(articleImagePattern);
     if (privateImage) {
@@ -28,7 +68,7 @@ function inlineMarkdown(value) {
     }
     const inlineImage = safeInlineImage(source);
     if (inlineImage) {
-      return hold(`<figure class="article-image"><img src="${escapeHtml(inlineImage)}" alt="${escapeHtml(alt || "随笔图片")}"><figcaption>${escapeHtml(alt || "随笔图片")}</figcaption></figure>`);
+      return hold(imageFigure(inlineImage, alt));
     }
     const href = safeLink(source);
     return href ? hold(`<a href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer">${escapeHtml(alt || "外部图片")}</a>`) : escapeHtml(alt || source);

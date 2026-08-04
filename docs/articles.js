@@ -1,12 +1,13 @@
-import { renderArticleMarkdown } from "./article-markdown.js?v=20260804-2";
+import { renderArticleMarkdown } from "./article-markdown.js?v=20260804-3";
 import {
   articleDownloadName,
   articleHash,
   articleIdFromHash,
   deriveImportedArticle,
   filterArticleSummaries,
+  preserveUnchangedMarkdown,
   proportionalScrollTop,
-} from "./article-utils.js?v=20260804-1";
+} from "./article-utils.js?v=20260804-2";
 import {
   formatTradeReference,
   privateArticleImageIds,
@@ -58,6 +59,7 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
   let autosaveTimer = null;
   let changeVersion = 0;
   let savePromise = null;
+  let editorMarkdownSnapshot = null;
   let scrollSyncCleanup = null;
   const pendingPastedImages = new Map();
   const editorPrivateImageSources = new Map();
@@ -481,6 +483,7 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
     if (!canEdit()) { notify("当前账号仅有浏览权限", true); return; }
     clearAutosaveTimer();
     changeVersion = 0;
+    editorMarkdownSnapshot = null;
     discardPendingImages();
     discardEditorPrivateImages();
     if (!article?.id) {
@@ -512,6 +515,10 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
     try {
       const editableMarkdown = await loadPrivateImagesForEditor(storedMarkdown);
       await ensureArticleEditor(editableMarkdown);
+      editorMarkdownSnapshot = {
+        stored: storedMarkdown,
+        editable: articleEditorInstance?.getValue() || pendingEditorValue,
+      };
       setDirty(false);
       if (editorPrivateImageErrors.size) notify(`${editorPrivateImageErrors.size} 张随笔图片读取失败，请退出后重试`, true);
     } catch (error) {
@@ -525,7 +532,10 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
 
   function editorPayload() {
     const editableContent = articleEditorInstance ? articleEditorInstance.getValue() : pendingEditorValue;
-    const contentMd = restorePrivateArticleImages(editableContent, editorPrivateImageSources);
+    const unchangedAwareContent = editorMarkdownSnapshot
+      ? preserveUnchangedMarkdown(editorMarkdownSnapshot.stored, editorMarkdownSnapshot.editable, editableContent)
+      : editableContent;
+    const contentMd = restorePrivateArticleImages(unchangedAwareContent, editorPrivateImageSources);
     return {
       title: $("articleTitleInput").value,
       contentMd,
@@ -607,6 +617,10 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
     })();
     try {
       await savePromise;
+      editorMarkdownSnapshot = {
+        stored: current.contentMd,
+        editable: articleEditorInstance?.getValue() || pendingEditorValue,
+      };
       if (savedChangeVersion === changeVersion) setDirty(false);
       else scheduleAutoSave();
       await loadSummaries();
