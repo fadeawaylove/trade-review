@@ -13,6 +13,22 @@ export function formatTradeReference(trade) {
   return `[${label}](trade:${tradeId})`;
 }
 
+function tradeSequence(tradeId) {
+  const match = String(tradeId || "").match(/^TR-(\d+)$/i);
+  return match ? Number(match[1]) : -1;
+}
+
+export function tradePickerTrades(dashboard) {
+  return [...(dashboard?.trades || [])]
+    .filter((trade) => trade && !trade.deletedAt)
+    .sort((a, b) => {
+      const dateOrder = String(b.date || b.dateLabel || "").localeCompare(String(a.date || a.dateLabel || ""));
+      if (dateOrder) return dateOrder;
+      const sequenceOrder = tradeSequence(b.tradeId) - tradeSequence(a.tradeId);
+      return sequenceOrder || String(b.tradeId || "").localeCompare(String(a.tradeId || ""));
+    });
+}
+
 export function tradeIdsFromMarkdown(markdown) {
   const withoutCode = String(markdown || "")
     .replace(/```[\s\S]*?```/g, "")

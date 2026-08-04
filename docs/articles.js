@@ -11,7 +11,8 @@ import {
   privateArticleImageIds,
   replacePrivateArticleImages,
   restorePrivateArticleImages,
-} from "./article-references.js?v=20260804-1";
+  tradePickerTrades,
+} from "./article-references.js?v=20260804-2";
 
 const $ = (id) => document.getElementById(id);
 const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[char]));
@@ -356,7 +357,7 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
   }
 
   function articleTrades() {
-    return [...(getDashboard()?.trades || []), ...(getDashboard()?.deletedTrades || [])];
+    return tradePickerTrades(getDashboard());
   }
 
   function tradeToolbarButton() {
