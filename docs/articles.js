@@ -58,7 +58,6 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
   let autosaveTimer = null;
   let changeVersion = 0;
   let savePromise = null;
-  let scrollSyncFrame = null;
   let scrollSyncCleanup = null;
   const pendingPastedImages = new Map();
   const editorPrivateImageSources = new Map();
@@ -169,23 +168,10 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
     const source = $("articleContentEditor").querySelector(".vditor-ir .vditor-reset");
     const target = document.querySelector(".article-preview-document");
     if (!source || !target) return;
-    let syncingScroll = false;
-    const sync = (from, to) => {
-      if (syncingScroll) return;
-      syncingScroll = true;
-      to.scrollTop = proportionalScrollTop(from, to);
-      window.cancelAnimationFrame(scrollSyncFrame);
-      scrollSyncFrame = window.requestAnimationFrame(() => { syncingScroll = false; });
-    };
-    const syncPreview = () => sync(source, target);
-    const syncEditor = () => sync(target, source);
+    const syncPreview = () => { target.scrollTop = proportionalScrollTop(source, target); };
     source.addEventListener("scroll", syncPreview, { passive: true });
-    target.addEventListener("scroll", syncEditor, { passive: true });
     scrollSyncCleanup = () => {
       source.removeEventListener("scroll", syncPreview);
-      target.removeEventListener("scroll", syncEditor);
-      window.cancelAnimationFrame(scrollSyncFrame);
-      scrollSyncFrame = null;
     };
     syncPreview();
   }
