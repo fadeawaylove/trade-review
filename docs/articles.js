@@ -1,4 +1,4 @@
-import { renderArticleMarkdown } from "./article-markdown.js?v=20260803-2";
+import { renderArticleMarkdown } from "./article-markdown.js?v=20260804-1";
 import {
   articleDownloadName,
   articleHash,
@@ -6,6 +6,13 @@ import {
   deriveImportedArticle,
   filterArticleSummaries,
 } from "./article-utils.js?v=20260803-1";
+import {
+  formatTradeReference,
+  privateArticleImageIds,
+  replacePrivateArticleImages,
+  restorePrivateArticleImages,
+  tradeIdsFromMarkdown,
+} from "./article-references.js?v=20260804-1";
 
 const $ = (id) => document.getElementById(id);
 const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[char]));
@@ -46,7 +53,10 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
   let pendingEditorValue = "";
   let syncingEditor = false;
   let previewTimer = null;
+  let selectedTradeIds = new Set();
   const pendingPastedImages = new Map();
+  const editorPrivateImageSources = new Map();
+  const editorPrivateImageErrors = new Map();
 
   const canEdit = () => currentUser?.role === "editor";
 
@@ -58,6 +68,27 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
   function discardPendingImages() {
     pendingPastedImages.forEach((_image, localUrl) => URL.revokeObjectURL(localUrl));
     pendingPastedImages.clear();
+  }
+
+  function discardEditorPrivateImages() {
+    for (const localUrl of editorPrivateImageSources.values()) URL.revokeObjectURL(localUrl);
+    editorPrivateImageSources.clear();
+    editorPrivateImageErrors.clear();
+  }
+
+  async function privateImageUrl(imageId) {
+    const response = await fetch(`${apiBase}/api/article-images/${encodeURIComponent(imageId)}`, { headers: { Authorization: `Bearer ${getToken()}` } });
+    if (!response.ok) throw new Error("图片读取失败");
+    return URL.createObjectURL(await response.blob());
+  }
+
+  async function loadPrivateImagesForEditor(storedMarkdown) {
+    discardEditorPrivateImages();
+    await Promise.all(privateArticleImageIds(storedMarkdown).map(async (imageId) => {
+      try { editorPrivateImageSources.set(imageId, await privateImageUrl(imageId)); }
+      catch (error) { editorPrivateImageErrors.set(imageId, error.message || "图片读取失败"); }
+    }));
+    return replacePrivateArticleImages(storedMarkdown, editorPrivateImageSources);
   }
 
   function safeImageName(file, index = 0) {
@@ -102,6 +133,10 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
   function updateLivePreview(markdown = "") {
     $("articlePreviewTitle").textContent = $("articleTitleInput").value.trim() || "无标题随笔";
     $("articleEditorPreview").innerHTML = renderArticleMarkdown(markdown);
+    for (const [imageId, message] of editorPrivateImageErrors) {
+      const state = $("articleEditorPreview").querySelector(`[data-article-image-id="${imageId}"] .article-image-state`);
+      if (state) state.textContent = `${message}，请退出后重试`;
+    }
   }
 
   function scheduleLivePreview(markdown) {
@@ -276,9 +311,7 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
   async function hydrateArticleImages(host) {
     for (const figure of host.querySelectorAll("[data-article-image-id]")) {
       try {
-        const response = await fetch(`${apiBase}/api/article-images/${encodeURIComponent(figure.dataset.articleImageId)}`, { headers: { Authorization: `Bearer ${getToken()}` } });
-        if (!response.ok) throw new Error("图片读取失败");
-        const url = URL.createObjectURL(await response.blob());
+        const url = await privateImageUrl(figure.dataset.articleImageId);
         imageObjectUrls.push(url);
         const image = document.createElement("img");
         image.src = url;
@@ -290,6 +323,7 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
 
   function renderReader(article) {
     discardPendingImages();
+    discardEditorPrivateImages();
     revokeImages();
     document.body.classList.remove("article-writing-open");
     $("articleEditor").closest(".article-layout").classList.remove("is-editing");
@@ -321,10 +355,40 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
     if (historyMode !== "none") setHash(articleHash(articleId), historyMode);
   }
 
+  function articleTrades() {
+    return [...(getDashboard()?.trades || []), ...(getDashboard()?.deletedTrades || [])];
+  }
+
   function renderTradePicker(selectedIds) {
-    const selected = new Set(selectedIds || []);
-    const trades = [...(getDashboard()?.trades || []), ...(getDashboard()?.deletedTrades || [])];
-    $("articleTradePicker").innerHTML = trades.length ? trades.map((trade) => `<label><input type="checkbox" value="${esc(trade.tradeId)}" ${selected.has(trade.tradeId) ? "checked" : ""}><span>${esc(trade.tradeId)} · ${esc(trade.instrument || "")}</span></label>`).join("") : '<span class="article-list-empty">暂无可关联交易</span>';
+    if (selectedIds) selectedTradeIds = new Set(selectedIds.map((tradeId) => String(tradeId).toUpperCase()));
+    const query = $("articleTradeSearch").value.trim().toLocaleLowerCase("zh-CN");
+    const trades = articleTrades().filter((trade) => !query || [trade.tradeId, trade.instrument, trade.contract]
+      .join(" ").toLocaleLowerCase("zh-CN").includes(query));
+    $("articleTradePicker").innerHTML = trades.length ? trades.map((trade) => `
+      <div class="article-trade-picker-row">
+        <label><input type="checkbox" value="${esc(trade.tradeId)}" ${selectedTradeIds.has(trade.tradeId) ? "checked" : ""}><span>${esc(trade.tradeId)} · ${esc(trade.instrument || "")}</span></label>
+        <button type="button" data-insert-article-trade="${esc(trade.tradeId)}">插入正文</button>
+      </div>`).join("") : '<span class="article-list-empty">没有匹配的交易</span>';
+    $("articleTradePicker").querySelectorAll("input[type=checkbox]").forEach((input) => input.addEventListener("change", () => {
+      if (input.checked) selectedTradeIds.add(input.value);
+      else selectedTradeIds.delete(input.value);
+      setDirty(true);
+    }));
+    $("articleTradePicker").querySelectorAll("[data-insert-article-trade]").forEach((button) => button.addEventListener("click", () => insertTradeReference(button.dataset.insertArticleTrade)));
+  }
+
+  function insertTradeReference(tradeId) {
+    const trade = articleTrades().find((row) => row.tradeId === tradeId);
+    if (!trade || !articleEditorInstance) { notify("Markdown 编辑器尚未准备完成", true); return; }
+    selectedTradeIds.add(trade.tradeId);
+    articleEditorInstance.insertValue(`\n\n${formatTradeReference(trade)}\n\n`);
+    const markdown = articleEditorInstance.getValue();
+    pendingEditorValue = markdown;
+    renderTradePicker();
+    setDirty(true);
+    scheduleLivePreview(markdown);
+    articleEditorInstance.focus();
+    notify(`${trade.tradeId} 已插入正文`);
   }
 
   function renderEditorImages(images) {
@@ -340,9 +404,10 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
     }));
   }
 
-  function editArticle(article = null) {
+  async function editArticle(article = null) {
     if (!canEdit()) { notify("当前账号仅有浏览权限", true); return; }
     discardPendingImages();
+    discardEditorPrivateImages();
     if (!article?.id) {
       trashMode = false;
       renderList();
@@ -358,21 +423,39 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
     $("articleTitleInput").value = article?.title || "";
     $("articleStatusInput").value = article?.status || "draft";
     $("articleTagsInput").value = (article?.tags || []).join("，");
+    $("articleTradeSearch").value = "";
     renderTradePicker(article?.tradeIds || []);
     renderEditorImages(article?.images || []);
-    updateLivePreview(article?.contentMd || "");
-    setDirty(false);
     $("articleTitleInput").focus();
-    ensureArticleEditor(article?.contentMd || "").catch((error) => notify(error.message, true));
+    const storedMarkdown = article?.contentMd || "";
+    syncEditorMarkdown("");
+    $("articleSaveButton").disabled = true;
+    $("articleContentEditor").classList.add("is-loading");
+    $("articleContentEditor").setAttribute("aria-busy", "true");
+    $("articleSaveState").textContent = privateArticleImageIds(storedMarkdown).length ? "正在读取随笔图片…" : "正在准备编辑器…";
+    try {
+      const editableMarkdown = await loadPrivateImagesForEditor(storedMarkdown);
+      await ensureArticleEditor(editableMarkdown);
+      setDirty(false);
+      if (editorPrivateImageErrors.size) notify(`${editorPrivateImageErrors.size} 张随笔图片读取失败，请退出后重试`, true);
+    } catch (error) {
+      notify(error.message, true);
+    } finally {
+      $("articleContentEditor").classList.remove("is-loading");
+      $("articleContentEditor").removeAttribute("aria-busy");
+      $("articleSaveButton").disabled = false;
+    }
   }
 
   function editorPayload() {
+    const editableContent = articleEditorInstance ? articleEditorInstance.getValue() : pendingEditorValue;
+    const contentMd = restorePrivateArticleImages(editableContent, editorPrivateImageSources);
     return {
       title: $("articleTitleInput").value,
-      contentMd: articleEditorInstance ? articleEditorInstance.getValue() : pendingEditorValue,
+      contentMd,
       status: $("articleStatusInput").value,
       tags: $("articleTagsInput").value.split(/[，,]/).map((tag) => tag.trim()).filter(Boolean),
-      tradeIds: [...$("articleTradePicker").querySelectorAll("input:checked")].map((input) => input.value),
+      tradeIds: [...new Set([...selectedTradeIds, ...tradeIdsFromMarkdown(contentMd)])],
       ...(current?.revision ? { revision: current.revision } : {}),
     };
   }
@@ -404,11 +487,12 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
       const remoteSource = result.markdown?.match(/\]\((article-image:[^)]+)\)/)?.[1];
       if (!remoteSource) throw new Error("图片上传完成，但没有返回有效的 Markdown 引用");
       contentMd = contentMd.split(localUrl).join(remoteSource);
+      const imageId = remoteSource.slice("article-image:".length).toLowerCase();
+      editorPrivateImageSources.set(imageId, localUrl);
       current.images = [...(current.images || []), result.image];
-      URL.revokeObjectURL(localUrl);
       pendingPastedImages.delete(localUrl);
       renderEditorImages(current.images);
-      syncEditorMarkdown(contentMd);
+      syncEditorMarkdown(replacePrivateArticleImages(contentMd, editorPrivateImageSources));
     }
     return contentMd;
   }
@@ -458,10 +542,16 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
           headers: { "Content-Type": prepared.blob.type, "X-File-Name": encodeURIComponent(prepared.fileName) },
         });
         if (!articleEditorInstance) throw new Error("Markdown 编辑器尚未准备完成");
-        articleEditorInstance.insertValue(`\n\n${result.markdown}\n`);
+        const remoteSource = result.markdown?.match(/\]\((article-image:[^)]+)\)/)?.[1];
+        if (!remoteSource) throw new Error("图片上传完成，但没有返回有效的 Markdown 引用");
+        const imageId = remoteSource.slice("article-image:".length).toLowerCase();
+        const localUrl = URL.createObjectURL(prepared.blob);
+        editorPrivateImageSources.set(imageId, localUrl);
+        articleEditorInstance.insertValue(`\n\n${result.markdown.replace(remoteSource, localUrl)}\n`);
         current.images = [...(current.images || []), result.image];
         renderEditorImages(current.images);
         setDirty(true);
+        scheduleLivePreview(articleEditorInstance.getValue());
       } catch (error) { notify(error.message, true); }
     }
   }
@@ -510,6 +600,7 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
 
   async function toggleTrash() {
     discardPendingImages();
+    discardEditorPrivateImages();
     trashMode = !trashMode;
     current = null;
     $("articleReader").hidden = true;
@@ -538,6 +629,7 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
     if (current) renderReader(current);
     else {
       discardPendingImages();
+      discardEditorPrivateImages();
       $("articleEditor").hidden = true;
       document.body.classList.remove("article-writing-open");
       $("articleEditor").closest(".article-layout").classList.remove("is-editing");
@@ -571,20 +663,25 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
   $("tradesSectionButton").addEventListener("click", () => showSection("trades"));
   $("articlesSectionButton").addEventListener("click", () => showSection("articles"));
   ["articleSearch", "articleStatusFilter", "articleTagFilter"].forEach((id) => $(id).addEventListener(id === "articleSearch" ? "input" : "change", renderList));
-  $("newArticleButton").addEventListener("click", () => editArticle(null));
+  $("newArticleButton").addEventListener("click", () => editArticle(null).catch((error) => notify(error.message, true)));
   $("articleImportInput").addEventListener("change", async (event) => {
     const file = event.target.files?.[0];
     if (!file) return;
-    try { editArticle(deriveImportedArticle(file.name, await file.text())); setDirty(true); }
+    try { await editArticle(deriveImportedArticle(file.name, await file.text())); setDirty(true); }
     catch (error) { notify(error.message, true); }
     event.target.value = "";
   });
   $("articleTrashButton").addEventListener("click", toggleTrash);
-  $("articleEditButton").addEventListener("click", () => editArticle(current));
+  $("articleEditButton").addEventListener("click", () => editArticle(current).catch((error) => notify(error.message, true)));
   $("articleDownloadButton").addEventListener("click", exportCurrent);
   $("articleHistoryButton").addEventListener("click", openHistory);
   $("articleDeleteButton").addEventListener("click", () => current?.deletedAt ? restoreCurrent() : deleteCurrent());
   $("articleEditor").addEventListener("submit", saveArticle);
+  $("articleTradeSearch").addEventListener("input", () => renderTradePicker());
+  $("articleMarkdown").addEventListener("click", (event) => {
+    const reference = event.target.closest?.("[data-article-trade-id]");
+    if (reference) openTrade(reference.dataset.articleTradeId);
+  });
   $("articleEditor").addEventListener("keydown", (event) => {
     if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") {
       event.preventDefault();

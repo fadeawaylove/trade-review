@@ -14,7 +14,7 @@
   <link rel="stylesheet" href="./styles.css?v=20260729-2">
   <link rel="stylesheet" href="./readability.css?v=20260729-3">
   <link rel="stylesheet" href="./vendor/vditor/dist/index.css?v=3.11.2">
-  <link rel="stylesheet" href="./articles.css?v=20260803-5">
+  <link rel="stylesheet" href="./articles.css?v=20260804-1">
 </head>
 <body>
   <div class="grain" aria-hidden="true"></div>
@@ -222,7 +222,7 @@
                   </div>
                   <div class="article-editor-assets">
                     <section><h2>插入图片</h2><p>可直接粘贴截图，右侧立即预览，保存随笔时自动上传。</p><label class="ghost-button article-image-upload">选择图片<input id="articleImageInput" type="file" accept="image/png,image/jpeg,image/webp" multiple></label><div id="articleImages"></div></section>
-                    <section><h2>关联交易</h2><p>让这篇复盘随笔可以回到原始交易证据。</p><div class="article-trade-picker" id="articleTradePicker"></div></section>
+                    <section><h2>关联交易</h2><p>勾选可建立关联；“插入正文”会在当前光标处生成可点击的交易引用。</p><input class="article-trade-search" id="articleTradeSearch" type="search" placeholder="搜索交易编号或品种"><div class="article-trade-picker" id="articleTradePicker"></div></section>
                   </div>
                   <div class="article-shortcuts"><b>快捷键</b><span>Ctrl + S 保存</span><span>Esc 返回随笔</span></div>
                 </aside>
@@ -275,6 +275,6 @@
   <script src="./config.js"></script>
   <script src="./vendor/vditor/dist/js/icons/ant.js?v=3.11.2"></script>
   <script src="./vendor/vditor/dist/index.min.js?v=3.11.2"></script>
-  <script type="module" src="./app.js?v=20260804-2"></script>
+  <script type="module" src="./app.js?v=20260804-3"></script>
 </body>
 </html>

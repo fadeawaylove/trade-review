@@ -34,6 +34,11 @@ function inlineMarkdown(value) {
     return href ? hold(`<a href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer">${escapeHtml(alt || "外部图片")}</a>`) : escapeHtml(alt || source);
   });
   text = text.replace(/\[([^\]]+)\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g, (_match, label, source) => {
+    const trade = source.match(/^trade:(TR-\d{4,})$/i);
+    if (trade) {
+      const tradeId = trade[1].toUpperCase();
+      return hold(`<button class="article-trade-reference" type="button" data-article-trade-id="${tradeId}">${escapeHtml(label)}</button>`);
+    }
     const href = safeLink(source);
     return href ? hold(`<a href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer">${escapeHtml(label)}</a>`) : escapeHtml(label);
   });
