@@ -1,11 +1,12 @@
-import { renderArticleMarkdown } from "./article-markdown.js?v=20260804-1";
+import { renderArticleMarkdown } from "./article-markdown.js?v=20260804-2";
 import {
   articleDownloadName,
   articleHash,
   articleIdFromHash,
   deriveImportedArticle,
   filterArticleSummaries,
-} from "./article-utils.js?v=20260803-1";
+  proportionalScrollTop,
+} from "./article-utils.js?v=20260804-1";
 import {
   formatTradeReference,
   privateArticleImageIds,
@@ -17,6 +18,7 @@ import {
 const $ = (id) => document.getElementById(id);
 const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[char]));
 const VDITOR_CDN = new URL("./vendor/vditor", import.meta.url).href.replace(/\/$/, "");
+const AUTOSAVE_DELAY_MS = 1200;
 
 export function dismissVditorImagePreview(root = document) {
   const preview = root.querySelector?.(".vditor-img");
@@ -53,6 +55,11 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
   let pendingEditorValue = "";
   let syncingEditor = false;
   let previewTimer = null;
+  let autosaveTimer = null;
+  let changeVersion = 0;
+  let savePromise = null;
+  let scrollSyncFrame = null;
+  let scrollSyncCleanup = null;
   const pendingPastedImages = new Map();
   const editorPrivateImageSources = new Map();
   const editorPrivateImageErrors = new Map();
@@ -118,7 +125,7 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
     });
     const markdown = articleEditorInstance.getValue();
     pendingEditorValue = markdown;
-    setDirty(true);
+    markEditorChanged();
     scheduleLivePreview(markdown);
     notify(`${files.length} 张截图已加入，保存随笔时自动上传`);
     return null;
@@ -126,7 +133,61 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
 
   function setDirty(value) {
     dirty = Boolean(value);
-    $("articleSaveState").textContent = dirty ? "有未保存修改" : current ? `云端版本 ${current.revision}` : "尚未保存";
+    $("articleSaveState").textContent = dirty ? "等待自动保存…" : current ? `已自动保存 · 版本 ${current.revision}` : "自动保存已开启";
+  }
+
+  function clearAutosaveTimer() {
+    window.clearTimeout(autosaveTimer);
+    autosaveTimer = null;
+  }
+
+  function scheduleAutoSave() {
+    clearAutosaveTimer();
+    if (!dirty) return;
+    if (!$("articleTitleInput").value.trim()) {
+      $("articleSaveState").textContent = "填写标题后自动保存";
+      return;
+    }
+    $("articleSaveState").textContent = "等待自动保存…";
+    autosaveTimer = window.setTimeout(() => autosaveArticle(), AUTOSAVE_DELAY_MS);
+  }
+
+  function markEditorChanged() {
+    changeVersion += 1;
+    setDirty(true);
+    scheduleAutoSave();
+  }
+
+  function syncEditorPreviewScroll() {
+    const source = $("articleContentEditor").querySelector(".vditor-ir");
+    const target = document.querySelector(".article-preview-document");
+    if (source && target) target.scrollTop = proportionalScrollTop(source, target);
+  }
+
+  function mountEditorScrollSync() {
+    scrollSyncCleanup?.();
+    const source = $("articleContentEditor").querySelector(".vditor-ir");
+    const target = document.querySelector(".article-preview-document");
+    if (!source || !target) return;
+    let syncingScroll = false;
+    const sync = (from, to) => {
+      if (syncingScroll) return;
+      syncingScroll = true;
+      to.scrollTop = proportionalScrollTop(from, to);
+      window.cancelAnimationFrame(scrollSyncFrame);
+      scrollSyncFrame = window.requestAnimationFrame(() => { syncingScroll = false; });
+    };
+    const syncPreview = () => sync(source, target);
+    const syncEditor = () => sync(target, source);
+    source.addEventListener("scroll", syncPreview, { passive: true });
+    target.addEventListener("scroll", syncEditor, { passive: true });
+    scrollSyncCleanup = () => {
+      source.removeEventListener("scroll", syncPreview);
+      target.removeEventListener("scroll", syncEditor);
+      window.cancelAnimationFrame(scrollSyncFrame);
+      scrollSyncFrame = null;
+    };
+    syncPreview();
   }
 
   function updateLivePreview(markdown = "") {
@@ -136,6 +197,7 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
       const state = $("articleEditorPreview").querySelector(`[data-article-image-id="${imageId}"] .article-image-state`);
       if (state) state.textContent = `${message}，请退出后重试`;
     }
+    syncEditorPreviewScroll();
   }
 
   function scheduleLivePreview(markdown) {
@@ -149,6 +211,7 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
       syncingEditor = true;
       articleEditorInstance.setValue(value, true);
       syncingEditor = false;
+      mountEditorScrollSync();
       updateLivePreview(value);
       return Promise.resolve(articleEditorInstance);
     }
@@ -202,7 +265,7 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
               window.setTimeout(() => {
                 const markdown = articleEditorInstance?.getValue() || pendingEditorValue;
                 pendingEditorValue = markdown;
-                setDirty(true);
+                markEditorChanged();
                 scheduleLivePreview(markdown);
               }, 0);
               return localUrl;
@@ -218,6 +281,7 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
             articleEditorInstance.setValue(pendingEditorValue, true);
             syncingEditor = false;
             mountTradeToolbarPopover();
+            mountEditorScrollSync();
             $("articleSaveButton").disabled = false;
             updateLivePreview(pendingEditorValue);
             if (!dirty) setDirty(false);
@@ -225,7 +289,7 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
           },
           input: () => {
             if (!articleEditorInstance || syncingEditor) return;
-            setDirty(true);
+            markEditorChanged();
             scheduleLivePreview(articleEditorInstance.getValue());
           },
           ctrlEnter: () => $("articleEditor").requestSubmit(),
@@ -323,6 +387,9 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
   }
 
   function renderReader(article) {
+    clearAutosaveTimer();
+    scrollSyncCleanup?.();
+    scrollSyncCleanup = null;
     discardPendingImages();
     discardEditorPrivateImages();
     revokeImages();
@@ -404,7 +471,7 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
     articleEditorInstance.insertValue(`\n\n${formatTradeReference(trade)}\n\n`);
     const markdown = articleEditorInstance.getValue();
     pendingEditorValue = markdown;
-    setDirty(true);
+    markEditorChanged();
     scheduleLivePreview(markdown);
     toggleTradePicker(false);
     articleEditorInstance.focus();
@@ -426,6 +493,8 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
 
   async function editArticle(article = null) {
     if (!canEdit()) { notify("当前账号仅有浏览权限", true); return; }
+    clearAutosaveTimer();
+    changeVersion = 0;
     discardPendingImages();
     discardEditorPrivateImages();
     if (!article?.id) {
@@ -518,12 +587,20 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
     return contentMd;
   }
 
-  async function saveArticle(event) {
-    event.preventDefault();
+  async function persistArticle({ closeAfterSave }) {
+    if (savePromise) return savePromise;
+    if (!$("articleTitleInput").value.trim()) {
+      $("articleSaveState").textContent = "填写标题后自动保存";
+      if (closeAfterSave) $("articleTitleInput").reportValidity();
+      return null;
+    }
+    clearAutosaveTimer();
     const button = $("articleSaveButton");
     button.disabled = true;
-    button.textContent = "正在保存…";
-    try {
+    button.textContent = closeAfterSave ? "正在保存…" : "自动保存中…";
+    $("articleSaveState").textContent = closeAfterSave ? "正在保存…" : "正在自动保存…";
+    const savedChangeVersion = changeVersion;
+    savePromise = (async () => {
       let payload = editorPayload();
       const isNewArticle = !current?.id;
       if (isNewArticle) {
@@ -540,16 +617,41 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
         });
         current = updated.article;
       }
-      setDirty(false);
+      return current;
+    })();
+    try {
+      await savePromise;
+      if (savedChangeVersion === changeVersion) setDirty(false);
+      else scheduleAutoSave();
       await loadSummaries();
-      renderReader(current);
       setHash(articleHash(current.id), "replace");
-      notify("随笔已保存到云端");
+      if (closeAfterSave && !dirty) {
+        renderReader(current);
+        notify("随笔已保存到云端");
+      }
+      return current;
     } catch (error) {
-      setDirty(true);
-      notify(current?.id && pendingPastedImages.size ? `${error.message}；文章已保留，可再次保存重试图片上传` : error.message, true);
+      dirty = true;
+      $("articleSaveState").textContent = "自动保存失败，继续输入后重试";
+      const message = current?.id && pendingPastedImages.size ? `${error.message}；文章已保留，可再次保存重试图片上传` : error.message;
+      notify(closeAfterSave ? message : `自动保存失败：${message}`, true);
+      return null;
+    } finally {
+      savePromise = null;
+      button.disabled = false;
+      button.textContent = "立即保存";
     }
-    finally { button.disabled = false; button.textContent = "保存随笔"; }
+  }
+
+  async function autosaveArticle() {
+    autosaveTimer = null;
+    if (!dirty || savePromise || !$("articleTitleInput").value.trim()) return;
+    await persistArticle({ closeAfterSave: false });
+  }
+
+  async function saveArticle(event) {
+    event.preventDefault();
+    await persistArticle({ closeAfterSave: true });
   }
 
   async function uploadImages(files) {
@@ -571,7 +673,7 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
         articleEditorInstance.insertValue(`\n\n${result.markdown.replace(remoteSource, localUrl)}\n`);
         current.images = [...(current.images || []), result.image];
         renderEditorImages(current.images);
-        setDirty(true);
+        markEditorChanged();
         scheduleLivePreview(articleEditorInstance.getValue());
       } catch (error) { notify(error.message, true); }
     }
@@ -646,6 +748,9 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
 
   function cancelEditor() {
     if (dirty && !confirm("放弃尚未保存的修改？")) return;
+    clearAutosaveTimer();
+    scrollSyncCleanup?.();
+    scrollSyncCleanup = null;
     toggleTradePicker(false);
     setDirty(false);
     if (current) renderReader(current);
@@ -689,7 +794,7 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
   $("articleImportInput").addEventListener("change", async (event) => {
     const file = event.target.files?.[0];
     if (!file) return;
-    try { await editArticle(deriveImportedArticle(file.name, await file.text())); setDirty(true); }
+    try { await editArticle(deriveImportedArticle(file.name, await file.text())); markEditorChanged(); }
     catch (error) { notify(error.message, true); }
     event.target.value = "";
   });
@@ -743,8 +848,8 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
   $("articleHistoryClose").addEventListener("click", () => { $("articleHistory").hidden = true; });
   $("articleImageInput").addEventListener("change", (event) => { uploadImages(event.target.files || []); event.target.value = ""; });
   $("articleExportAll").addEventListener("click", exportAll);
-  $("articleTitleInput").addEventListener("input", () => { setDirty(true); updateLivePreview(articleEditorInstance?.getValue() || pendingEditorValue); });
-  ["articleStatusInput", "articleTagsInput"].forEach((id) => $(id).addEventListener("input", () => setDirty(true)));
+  $("articleTitleInput").addEventListener("input", () => { markEditorChanged(); updateLivePreview(articleEditorInstance?.getValue() || pendingEditorValue); });
+  ["articleStatusInput", "articleTagsInput"].forEach((id) => $(id).addEventListener("input", markEditorChanged));
   window.addEventListener("beforeunload", (event) => { if (dirty) { event.preventDefault(); event.returnValue = ""; } });
   window.addEventListener("popstate", () => { route().catch((error) => notify(error.message, true)); });
 

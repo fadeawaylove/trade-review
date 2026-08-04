@@ -65,7 +65,16 @@ export function renderArticleMarkdown(markdown) {
 
   while (index < lines.length) {
     const line = lines[index];
-    if (!line.trim()) { index += 1; continue; }
+    if (!line.trim()) {
+      let blankLineCount = 0;
+      while (index < lines.length && !lines[index].trim()) {
+        blankLineCount += 1;
+        index += 1;
+      }
+      const extraBlankLines = Math.max(0, blankLineCount - 1);
+      if (extraBlankLines) blocks.push(`<div class="article-blank-lines" aria-hidden="true">${"<span></span>".repeat(extraBlankLines)}</div>`);
+      continue;
+    }
 
     const fence = line.match(/^\s*```([^`]*)$/);
     if (fence) {

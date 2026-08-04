@@ -34,3 +34,11 @@ export function articleDownloadName(title) {
   const safe = String(title || "未命名随笔").replace(/[\\/:*?"<>|\u0000-\u001f]/g, "_").trim();
   return `${safe || "未命名随笔"}.md`;
 }
+
+export function proportionalScrollTop(source, target) {
+  const sourceRange = Math.max(0, Number(source?.scrollHeight || 0) - Number(source?.clientHeight || 0));
+  const targetRange = Math.max(0, Number(target?.scrollHeight || 0) - Number(target?.clientHeight || 0));
+  if (!sourceRange || !targetRange) return 0;
+  const ratio = Math.min(1, Math.max(0, Number(source?.scrollTop || 0) / sourceRange));
+  return Math.round(targetRange * ratio);
+}
