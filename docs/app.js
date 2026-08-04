@@ -2,14 +2,16 @@ import { buildEquityChartModel, chartWidthForRange, resolveChartRange } from "./
 import { buildEvidenceCarouselState } from "./evidence-carousel.js?v=20260721-1";
 import { clearAttachmentCache, loadAttachmentBlob, removeAttachmentFromCache } from "./attachment-cache.js?v=20260804-1";
 import { paginateLedgerRows } from "./ledger-pagination.js?v=20260729-1";
-import { initArticles } from "./articles.js?v=20260803-9";
+import { initArticles } from "./articles.js?v=20260804-1";
+import { safeReturnHash, tokenNeedsRefresh } from "./session.js?v=20260804-1";
 
 (() => {
   const CONFIG = window.TRADE_CONFIG || {};
   const API = String(CONFIG.apiBase || "").replace(/\/$/, "");
   const $ = (id) => document.getElementById(id);
   const TOKEN_KEY = "tradeReviewToken";
-  const RENEW_INTERVAL_MS = 24 * 60 * 60 * 1000;
+  const RETURN_HASH_KEY = "tradeReviewReturnHash";
+  const RENEW_INTERVAL_MS = 6 * 60 * 60 * 1000;
   const filters = ["instrument", "direction", "session", "result"];
   const selects = Object.fromEntries(filters.map((name) => [name, $(`${name}Filter`)]));
   let dashboard = null;
@@ -290,11 +292,13 @@ import { initArticles } from "./articles.js?v=20260803-9";
     const match = location.hash.match(/(?:^#|&)token=([^&]+)/);
     if (!match) return;
     saveToken(decodeURIComponent(match[1]));
-    history.replaceState(null, "", `${location.pathname}${location.search}`);
+    const returnHash = safeReturnHash(sessionStorage.getItem(RETURN_HASH_KEY));
+    sessionStorage.removeItem(RETURN_HASH_KEY);
+    history.replaceState(null, "", `${location.pathname}${location.search}${returnHash}`);
   }
 
   async function renewSession() {
-    if (!token) return;
+    if (!token || !tokenNeedsRefresh(token)) return;
     const renewed = await apiFetch("/api/session/refresh", { method: "POST" });
     if (renewed.token) saveToken(renewed.token);
   }
@@ -317,6 +321,7 @@ import { initArticles } from "./articles.js?v=20260803-9";
       setAuthVisible(true, "云端服务尚未完成配置。");
       return;
     }
+    sessionStorage.setItem(RETURN_HASH_KEY, safeReturnHash(location.hash));
     const returnUrl = `${location.origin}${location.pathname}`;
     location.href = `${API}/auth/login?return=${encodeURIComponent(returnUrl)}`;
   }
@@ -833,6 +838,8 @@ import { initArticles } from "./articles.js?v=20260803-9";
     parseLoginToken();
     if (!token) { setAuthVisible(true); return; }
     if (!API || API.includes("__API_BASE__")) { setAuthVisible(true, "云端服务尚未完成配置。"); return; }
+    const initialSection = location.hash.startsWith("#essay") ? "articles" : "trades";
+    articles.showSection(initialSection, { updateHistory: false, load: false });
     setAuthVisible(false);
     try {
       await renewSession();
@@ -904,6 +911,11 @@ import { initArticles } from "./articles.js?v=20260803-9";
     event.preventDefault();
     const trade = dashboard?.trades?.find((row) => row.tradeId === activeTradeId);
     if (trade) uploadAttachmentFiles(files, trade);
+  });
+  window.addEventListener("storage", (event) => {
+    if (event.key !== TOKEN_KEY) return;
+    token = event.newValue || "";
+    if (!token) setAuthVisible(true);
   });
   window.addEventListener("resize", () => {
     const nextCompact = matchMedia("(max-width: 760px)").matches;

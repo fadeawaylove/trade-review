@@ -36,6 +36,7 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
   let deletedSummaries = [];
   let current = null;
   let currentUser = null;
+  let summaryLoadPromise = null;
   let trashMode = false;
   let dirty = false;
   let imageObjectUrls = [];
@@ -200,7 +201,7 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
     history[mode === "replace" ? "replaceState" : "pushState"]({ articleSection: true }, "", target);
   }
 
-  function showSection(section, { updateHistory = true } = {}) {
+  function showSection(section, { updateHistory = true, load = true } = {}) {
     const articlesVisible = section === "articles";
     $("tradesSection").hidden = articlesVisible;
     $("articlesSection").hidden = !articlesVisible;
@@ -209,7 +210,7 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
     $("tradesSectionButton").setAttribute("aria-pressed", String(!articlesVisible));
     $("articlesSectionButton").setAttribute("aria-pressed", String(articlesVisible));
     if (articlesVisible) {
-      if (!loaded) loadSummaries().catch((error) => notify(error.message, true));
+      if (load && !loaded) loadSummaries().catch((error) => notify(error.message, true));
       if (updateHistory && !location.hash.startsWith("#essay")) setHash("#essays");
     } else if (updateHistory && location.hash.startsWith("#essay")) setHash("");
   }
@@ -249,15 +250,20 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
   }
 
   async function loadSummaries() {
-    const [active, deleted] = await Promise.all([
-      apiFetch("/api/articles"),
-      canEdit() ? apiFetch("/api/articles?deleted=1") : Promise.resolve({ articles: [] }),
-    ]);
-    summaries = active.articles || [];
-    deletedSummaries = deleted.articles || [];
-    loaded = true;
-    refreshTagOptions();
-    renderList();
+    if (summaryLoadPromise) return summaryLoadPromise;
+    summaryLoadPromise = (async () => {
+      const [active, deleted] = await Promise.all([
+        apiFetch("/api/articles"),
+        canEdit() ? apiFetch("/api/articles?deleted=1") : Promise.resolve({ articles: [] }),
+      ]);
+      summaries = active.articles || [];
+      deletedSummaries = deleted.articles || [];
+      loaded = true;
+      refreshTagOptions();
+      renderList();
+    })();
+    try { return await summaryLoadPromise; }
+    finally { summaryLoadPromise = null; }
   }
 
   function renderTradeLinks(article) {

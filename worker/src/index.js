@@ -72,21 +72,29 @@ export async function withD1Retry(operation, delays = [100, 250, 500, 1000]) {
   }
 }
 
+class AuthServiceUnavailable extends Error {}
+
 async function verifyToken(request, env) {
   const token = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
   const [header, payload, signature] = token.split(".");
   if (!header || !payload || !signature) return null;
   const value = `${header}.${payload}`;
   if (!equalSafe(signature, await hmac(value, env.JWT_SECRET))) return null;
-  try {
-    const claims = JSON.parse(new TextDecoder().decode(decode64url(payload)));
-    const role = githubAccessRole(claims.login, env);
-    if (!claims.jti || claims.exp < Math.floor(Date.now() / 1000) || !role) return null;
-    const revoked = await withD1Retry(() => env.DB.prepare("SELECT jti FROM revoked_sessions WHERE jti = ?1 AND expires_at >= ?2")
-      .bind(claims.jti, Math.floor(Date.now() / 1000)).first());
-    if (revoked) return null;
-    return { ...claims, role };
-  } catch { return null; }
+  let claims;
+  try { claims = JSON.parse(new TextDecoder().decode(decode64url(payload))); }
+  catch { return null; }
+  const role = githubAccessRole(claims.login, env);
+  if (claims.exp < Math.floor(Date.now() / 1000) || !role) return null;
+  if (claims.jti) {
+    try {
+      const revoked = await withD1Retry(() => env.DB.prepare("SELECT jti FROM revoked_sessions WHERE jti = ?1 AND expires_at >= ?2")
+        .bind(claims.jti, Math.floor(Date.now() / 1000)).first());
+      if (revoked) return null;
+    } catch (error) {
+      throw new AuthServiceUnavailable("revocation store unavailable", { cause: error });
+    }
+  }
+  return { ...claims, role };
 }
 
 function corsHeaders(request, env) {
@@ -207,12 +215,13 @@ async function loadDashboard(env, { includeDeleted = true } = {}) {
 }
 
 async function revokeSession(env, user) {
+  if (!user.jti) return;
   const now = Math.floor(Date.now() / 1000);
-  await env.DB.batch([
+  await withD1Retry(() => env.DB.batch([
     env.DB.prepare("INSERT OR REPLACE INTO revoked_sessions (jti, login, expires_at, revoked_at) VALUES (?1, ?2, ?3, ?4)")
       .bind(user.jti, user.login, user.exp, now),
     env.DB.prepare("DELETE FROM revoked_sessions WHERE expires_at < ?1").bind(now),
-  ]);
+  ]));
 }
 
 async function handleOAuthLogin(request, env) {
@@ -282,12 +291,18 @@ export default {
     if (url.pathname === "/auth/callback" && request.method === "GET") return handleOAuthCallback(request, env);
     if (url.pathname === "/api/health" && request.method === "GET") return json(request, env, { ok: true, storage: "cloudflare-d1" });
 
-    const user = await verifyToken(request, env);
+    let user;
+    try { user = await verifyToken(request, env); }
+    catch (error) {
+      if (error instanceof AuthServiceUnavailable) {
+        return json(request, env, { error: "登录服务暂时不可用，请稍后重试" }, 503);
+      }
+      throw error;
+    }
     if (!user) return json(request, env, { error: "请使用 GitHub 登录" }, 401);
     if (url.pathname === "/api/session" && request.method === "GET") return json(request, env, { user: { login: user.login, name: user.name, avatar: user.avatar, role: user.role } });
     if (url.pathname === "/api/session/refresh" && request.method === "POST") {
       const token = await issueToken(user, env.JWT_SECRET);
-      await revokeSession(env, user);
       return json(request, env, { token, expiresAt: new Date((Math.floor(Date.now() / 1000) + SESSION_TTL_SECONDS) * 1000).toISOString() });
     }
     if (url.pathname === "/api/session/logout" && request.method === "POST") {

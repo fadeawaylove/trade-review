@@ -32,7 +32,8 @@ CREATE TABLE IF NOT EXISTS oauth_receipts (
 
 CREATE INDEX IF NOT EXISTS idx_oauth_receipts_expires_at ON oauth_receipts(expires_at);
 
--- Short-lived JWTs can be revoked immediately on logout or refresh.
+-- New JWTs can be revoked immediately when the user explicitly logs out.
+-- Legacy JWTs without a jti remain valid until their original expiration.
 CREATE TABLE IF NOT EXISTS revoked_sessions (
   jti TEXT PRIMARY KEY,
   login TEXT NOT NULL,
