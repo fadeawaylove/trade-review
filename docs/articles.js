@@ -296,7 +296,7 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
     history[mode === "replace" ? "replaceState" : "pushState"]({ articleSection: true }, "", target);
   }
 
-  function showSection(section, { updateHistory = true, load = true } = {}) {
+  function showSection(section, { updateHistory = true, load = true, trackDashboard = true } = {}) {
     const articlesVisible = section === "articles";
     $("app").classList.toggle("app-mode-articles", articlesVisible);
     $("tradesSection").hidden = articlesVisible;
@@ -308,7 +308,10 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
     if (articlesVisible) {
       if (load && !loaded) loadSummaries().catch((error) => notify(error.message, true));
       if (updateHistory && !location.hash.startsWith("#essay")) setHash("#essays");
-    } else if (updateHistory && location.hash.startsWith("#essay")) setHash("");
+    } else {
+      if (trackDashboard) recordAccess?.("dashboard", "main", "日内交易复盘台");
+      if (updateHistory && location.hash.startsWith("#essay")) setHash("");
+    }
   }
 
   function articleFilters() {
@@ -783,7 +786,7 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
 
   async function route() {
     if (!location.hash.startsWith("#essay")) {
-      if (!$("articlesSection").hidden) showSection("trades", { updateHistory: false });
+      if (!$("articlesSection").hidden) showSection("trades", { updateHistory: false, trackDashboard: false });
       return;
     }
     showSection("articles", { updateHistory: false });

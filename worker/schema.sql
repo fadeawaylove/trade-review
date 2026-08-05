@@ -46,12 +46,30 @@ CREATE INDEX IF NOT EXISTS idx_revoked_sessions_expires_at ON revoked_sessions(e
 CREATE TABLE IF NOT EXISTS access_history (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   actor TEXT NOT NULL,
-  resource_type TEXT NOT NULL CHECK (resource_type IN ('trade', 'article')),
+  resource_type TEXT NOT NULL CHECK (resource_type IN ('dashboard', 'trade', 'article')),
   resource_id TEXT NOT NULL,
   action TEXT NOT NULL CHECK (action IN ('view')),
   title TEXT NOT NULL DEFAULT '',
   created_at TEXT NOT NULL
 );
+
+-- Rebuild the table so earlier deployments whose CHECK constraint only allowed
+-- trade/article can accept dashboard page views without losing existing rows.
+CREATE TABLE IF NOT EXISTS access_history_next (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  actor TEXT NOT NULL,
+  resource_type TEXT NOT NULL CHECK (resource_type IN ('dashboard', 'trade', 'article')),
+  resource_id TEXT NOT NULL,
+  action TEXT NOT NULL CHECK (action IN ('view')),
+  title TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL
+);
+
+INSERT OR IGNORE INTO access_history_next (id, actor, resource_type, resource_id, action, title, created_at)
+  SELECT id, actor, resource_type, resource_id, action, title, created_at FROM access_history;
+
+DROP TABLE access_history;
+ALTER TABLE access_history_next RENAME TO access_history;
 
 CREATE INDEX IF NOT EXISTS idx_access_history_created_at ON access_history(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_access_history_actor_created_at ON access_history(actor, created_at DESC);

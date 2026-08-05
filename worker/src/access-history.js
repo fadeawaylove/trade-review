@@ -1,4 +1,4 @@
-const RESOURCE_TYPES = new Set(["trade", "article"]);
+const RESOURCE_TYPES = new Set(["dashboard", "trade", "article"]);
 const MAX_TITLE_LENGTH = 160;
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 100;

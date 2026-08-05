@@ -2,7 +2,7 @@ import { buildEquityChartModel, chartWidthForRange, resolveChartRange } from "./
 import { buildEvidenceCarouselState } from "./evidence-carousel.js?v=20260721-1";
 import { clearAttachmentCache, loadAttachmentBlob, removeAttachmentFromCache } from "./attachment-cache.js?v=20260804-1";
 import { paginateLedgerRows } from "./ledger-pagination.js?v=20260729-1";
-import { initArticles } from "./articles.js?v=20260805-2";
+import { initArticles } from "./articles.js?v=20260805-3";
 import { safeReturnHash, tokenNeedsRefresh } from "./session.js?v=20260804-1";
 
 (() => {
@@ -45,7 +45,7 @@ import { safeReturnHash, tokenNeedsRefresh } from "./session.js?v=20260804-1";
     openTrade: (tradeId) => {
       const trade = dashboard?.trades?.find((row) => row.tradeId === tradeId) || dashboard?.deletedTrades?.find((row) => row.tradeId === tradeId);
       if (!trade || trade.deletedAt) { notify("关联交易当前位于回收站", true); return; }
-      articles.showSection("trades", { updateHistory: false });
+      articles.showSection("trades", { updateHistory: false, trackDashboard: false });
       openTradeWorkspace(trade);
     },
     recordAccess,
@@ -629,27 +629,17 @@ import { safeReturnHash, tokenNeedsRefresh } from "./session.js?v=20260804-1";
       const payload = await apiFetch("/api/access-history?limit=80");
       const rows = payload.history || [];
       const cards = rows.map((item) => {
-        const resourceLabel = item.resourceType === "trade" ? `交易 ${item.resourceId}` : `手记 ${item.title || item.resourceId}`;
-        const resourceMeta = item.resourceType === "trade" ? item.title : item.resourceId;
+        const resourceLabel = item.resourceType === "dashboard" ? "首页"
+          : item.resourceType === "trade" ? `交易 ${item.resourceId}`
+            : `手记 ${item.title || item.resourceId}`;
+        const resourceMeta = item.resourceType === "dashboard" ? item.title
+          : item.resourceType === "trade" ? item.title
+            : item.resourceId;
         return `<article class="history-card">
           <div class="history-card-main"><span>${esc(item.actor)} · ${esc(formatCloudTime(item.createdAt))}</span><h3>${esc(resourceLabel)}</h3><p>${esc(resourceMeta || "站内访问")}</p></div>
-          <button class="ghost-button history-open-button" type="button" data-history-type="${esc(item.resourceType)}" data-history-id="${esc(item.resourceId)}">打开</button>
         </article>`;
       }).join("");
       $("drawerContent").innerHTML = `<div class="drawer-sub">ACCESS HISTORY · ${rows.length} 条</div><h2>访问历史</h2><p class="trash-intro">仅当前编辑账号可见。这里记录登录用户在站内打开过的交易复盘和手记。</p><div class="history-list">${cards || `<div class="trash-empty"><b>暂无访问记录</b><span>打开交易复盘或手记后会出现在这里。</span></div>`}</div>`;
-      document.querySelectorAll("[data-history-type]").forEach((button) => {
-        button.addEventListener("click", async () => {
-          document.body.classList.remove("drawer-open");
-          if (button.dataset.historyType === "trade") {
-            const trade = dashboard?.trades?.find((row) => row.tradeId === button.dataset.historyId);
-            if (trade) openTradeWorkspace(trade);
-            else notify("这笔交易当前不可打开", true);
-          } else {
-            try { await articles.open(button.dataset.historyId); }
-            catch (error) { notify(error.message, true); }
-          }
-        });
-      });
     } catch (error) {
       $("drawerContent").innerHTML = `<div class="drawer-sub">ACCESS HISTORY</div><h2>访问历史</h2><p class="trash-intro">${esc(error.message)}</p>`;
     }
@@ -873,7 +863,7 @@ import { safeReturnHash, tokenNeedsRefresh } from "./session.js?v=20260804-1";
     if (!token) { setAuthVisible(true); return; }
     if (!API || API.includes("__API_BASE__")) { setAuthVisible(true, "云端服务尚未完成配置。"); return; }
     const initialSection = location.hash.startsWith("#essay") ? "articles" : "trades";
-    articles.showSection(initialSection, { updateHistory: false, load: false });
+    articles.showSection(initialSection, { updateHistory: false, load: false, trackDashboard: false });
     setAuthVisible(false);
     try {
       await renewSession();
@@ -893,7 +883,12 @@ import { safeReturnHash, tokenNeedsRefresh } from "./session.js?v=20260804-1";
       render();
       const routedTrade = dashboard.trades.find((trade) => trade.tradeId === tradeRouteId());
       if (routedTrade) openTradeWorkspace(routedTrade, { historyMode: "none" });
-      else await articles.route();
+      else {
+        await articles.route();
+        if (initialSection === "trades" && !location.hash.startsWith("#essay")) {
+          recordAccess("dashboard", "main", "日内交易复盘台");
+        }
+      }
       setInterval(() => { renewSession().catch(() => {}); }, RENEW_INTERVAL_MS);
     } catch (error) {
       if (token) { setAuthVisible(true, error.message); }
