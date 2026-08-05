@@ -2,7 +2,7 @@ import { buildEquityChartModel, chartWidthForRange, resolveChartRange } from "./
 import { buildEvidenceCarouselState } from "./evidence-carousel.js?v=20260721-1";
 import { clearAttachmentCache, loadAttachmentBlob, removeAttachmentFromCache } from "./attachment-cache.js?v=20260804-1";
 import { paginateLedgerRows } from "./ledger-pagination.js?v=20260729-1";
-import { initArticles } from "./articles.js?v=20260804-9";
+import { initArticles } from "./articles.js?v=20260805-1";
 import { safeReturnHash, tokenNeedsRefresh } from "./session.js?v=20260804-1";
 
 (() => {
@@ -900,6 +900,11 @@ import { safeReturnHash, tokenNeedsRefresh } from "./session.js?v=20260804-1";
     event.preventDefault();
     const trade = dashboard?.trades?.find((row) => row.tradeId === activeTradeId);
     if (trade) uploadAttachmentFiles(files, trade);
+  });
+  window.addEventListener("storage", (event) => {
+    if (event.key !== TOKEN_KEY) return;
+    token = event.newValue || "";
+    if (!token) setAuthVisible(true);
   });
   window.addEventListener("resize", () => {
     const nextCompact = matchMedia("(max-width: 760px)").matches;

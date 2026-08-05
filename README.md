@@ -34,7 +34,6 @@
 1. 创建 D1 数据库并把数据库 ID 写入 `wrangler.jsonc`；
 2. 执行 `worker/schema.sql`；
 3. 配置 `GITHUB_CLIENT_ID`、`GITHUB_CLIENT_SECRET`、`JWT_SECRET`；
-4. 日常发布使用仓库根目录的 `npm run publish:cloud`，不会触碰 D1 结构；只有修改 `worker/schema.sql` 时才使用 `npm run publish:cloud:schema`。
 4. 部署 Worker；
 5. 将 Worker URL 写入 `docs/config.js`；
 6. 推送到 GitHub，触发 Pages 部署；
