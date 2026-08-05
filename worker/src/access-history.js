@@ -77,6 +77,7 @@ export async function handleAccessHistoryRequest(request, env, user, url, { json
   if (request.method !== "GET") return json(request, env, { error: "接口不存在" }, 404);
   if (user.role !== "editor") return json(request, env, { error: "当前账号无权查看访问历史" }, 403);
 
+  const actorRows = await env.DB.prepare("SELECT actor, MAX(created_at) AS latest_at FROM access_history GROUP BY actor ORDER BY latest_at DESC, actor ASC LIMIT 100").all();
   const where = [];
   const args = [];
   const actor = String(url.searchParams.get("actor") || "").trim();
@@ -94,5 +95,8 @@ export async function handleAccessHistoryRequest(request, env, user, url, { json
   args.push(limit);
   const sql = `SELECT id, actor, resource_type, resource_id, action, title, created_at FROM access_history${where.length ? ` WHERE ${where.join(" AND ")}` : ""} ORDER BY created_at DESC, id DESC LIMIT ?${args.length}`;
   const rows = await env.DB.prepare(sql).bind(...args).all();
-  return json(request, env, { history: (rows.results || []).map(historyItem) });
+  return json(request, env, {
+    actors: (actorRows.results || []).map((row) => row.actor).filter(Boolean),
+    history: (rows.results || []).map(historyItem),
+  });
 }

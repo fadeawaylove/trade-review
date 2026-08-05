@@ -625,9 +625,9 @@ import { safeReturnHash, tokenNeedsRefresh } from "./session.js?v=20260804-1";
     activeTradeId = null;
     $("drawerContent").innerHTML = `<div class="drawer-sub">ACCESS HISTORY</div><h2>访问历史</h2><p class="trash-intro">仅当前编辑账号可见。这里记录登录用户在站内打开过的交易复盘和手记。</p><div class="trash-empty"><b>正在读取</b><span>访问历史从云端数据库加载。</span></div>`;
     document.body.classList.add("drawer-open");
-    try {
-      const payload = await apiFetch("/api/access-history?limit=80");
+    const renderAccessHistory = (payload, actor = "") => {
       const rows = payload.history || [];
+      const actors = payload.actors || [];
       const cards = rows.map((item) => {
         const resourceLabel = item.resourceType === "dashboard" ? "首页"
           : item.resourceType === "trade" ? `交易 ${item.resourceId}`
@@ -639,7 +639,18 @@ import { safeReturnHash, tokenNeedsRefresh } from "./session.js?v=20260804-1";
           <div class="history-card-main"><span>${esc(item.actor)} · ${esc(formatCloudTime(item.createdAt))}</span><h3>${esc(resourceLabel)}</h3><p>${esc(resourceMeta || "站内访问")}</p></div>
         </article>`;
       }).join("");
-      $("drawerContent").innerHTML = `<div class="drawer-sub">ACCESS HISTORY · ${rows.length} 条</div><h2>访问历史</h2><p class="trash-intro">仅当前编辑账号可见。这里记录登录用户在站内打开过的交易复盘和手记。</p><div class="history-list">${cards || `<div class="trash-empty"><b>暂无访问记录</b><span>打开交易复盘或手记后会出现在这里。</span></div>`}</div>`;
+      $("drawerContent").innerHTML = `<div class="drawer-sub">ACCESS HISTORY · ${rows.length} 条</div><h2>访问历史</h2><p class="trash-intro">仅当前编辑账号可见。这里记录登录用户在站内打开过的交易复盘和手记。</p>
+        <label class="history-filter"><span>用户</span><select id="accessHistoryActorFilter"><option value="">全部用户</option>${actors.map((name) => `<option value="${esc(name)}" ${name === actor ? "selected" : ""}>${esc(name)}</option>`).join("")}</select></label>
+        <div class="history-list">${cards || `<div class="trash-empty"><b>暂无访问记录</b><span>打开交易复盘或手记后会出现在这里。</span></div>`}</div>`;
+      $("accessHistoryActorFilter").addEventListener("change", () => loadAccessHistory($("accessHistoryActorFilter").value));
+    };
+    const loadAccessHistory = async (actor = "") => {
+      const query = actor ? `?limit=80&actor=${encodeURIComponent(actor)}` : "?limit=80";
+      $("drawerContent").querySelector(".history-list")?.replaceChildren(Object.assign(document.createElement("div"), { className: "trash-empty", innerHTML: "<b>正在读取</b><span>访问历史从云端数据库加载。</span>" }));
+      renderAccessHistory(await apiFetch(`/api/access-history${query}`), actor);
+    };
+    try {
+      await loadAccessHistory();
     } catch (error) {
       $("drawerContent").innerHTML = `<div class="drawer-sub">ACCESS HISTORY</div><h2>访问历史</h2><p class="trash-intro">${esc(error.message)}</p>`;
     }
