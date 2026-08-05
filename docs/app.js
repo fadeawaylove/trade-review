@@ -2,7 +2,7 @@ import { buildEquityChartModel, chartWidthForRange, resolveChartRange } from "./
 import { buildEvidenceCarouselState } from "./evidence-carousel.js?v=20260721-1";
 import { clearAttachmentCache, loadAttachmentBlob, removeAttachmentFromCache } from "./attachment-cache.js?v=20260804-1";
 import { paginateLedgerRows } from "./ledger-pagination.js?v=20260729-1";
-import { initArticles } from "./articles.js?v=20260805-1";
+import { initArticles } from "./articles.js?v=20260805-2";
 import { safeReturnHash, tokenNeedsRefresh } from "./session.js?v=20260804-1";
 
 (() => {
@@ -48,6 +48,7 @@ import { safeReturnHash, tokenNeedsRefresh } from "./session.js?v=20260804-1";
       articles.showSection("trades", { updateHistory: false });
       openTradeWorkspace(trade);
     },
+    recordAccess,
   });
 
   function readToken() {
@@ -286,6 +287,14 @@ import { safeReturnHash, tokenNeedsRefresh } from "./session.js?v=20260804-1";
     }
     if (!response.ok) throw new Error(payload.error || payload || "云端请求失败");
     return payload;
+  }
+
+  function recordAccess(resourceType, resourceId, title = "") {
+    if (!token) return;
+    apiFetch("/api/access-history", {
+      method: "POST",
+      body: JSON.stringify({ resourceType, resourceId, title }),
+    }).catch(() => {});
   }
 
   function parseLoginToken() {
@@ -611,6 +620,41 @@ import { safeReturnHash, tokenNeedsRefresh } from "./session.js?v=20260804-1";
     });
   }
 
+  async function openAccessHistoryDrawer() {
+    clearAttachmentUrls();
+    activeTradeId = null;
+    $("drawerContent").innerHTML = `<div class="drawer-sub">ACCESS HISTORY</div><h2>访问历史</h2><p class="trash-intro">仅当前编辑账号可见。这里记录登录用户在站内打开过的交易复盘和手记。</p><div class="trash-empty"><b>正在读取</b><span>访问历史从云端数据库加载。</span></div>`;
+    document.body.classList.add("drawer-open");
+    try {
+      const payload = await apiFetch("/api/access-history?limit=80");
+      const rows = payload.history || [];
+      const cards = rows.map((item) => {
+        const resourceLabel = item.resourceType === "trade" ? `交易 ${item.resourceId}` : `手记 ${item.title || item.resourceId}`;
+        const resourceMeta = item.resourceType === "trade" ? item.title : item.resourceId;
+        return `<article class="history-card">
+          <div class="history-card-main"><span>${esc(item.actor)} · ${esc(formatCloudTime(item.createdAt))}</span><h3>${esc(resourceLabel)}</h3><p>${esc(resourceMeta || "站内访问")}</p></div>
+          <button class="ghost-button history-open-button" type="button" data-history-type="${esc(item.resourceType)}" data-history-id="${esc(item.resourceId)}">打开</button>
+        </article>`;
+      }).join("");
+      $("drawerContent").innerHTML = `<div class="drawer-sub">ACCESS HISTORY · ${rows.length} 条</div><h2>访问历史</h2><p class="trash-intro">仅当前编辑账号可见。这里记录登录用户在站内打开过的交易复盘和手记。</p><div class="history-list">${cards || `<div class="trash-empty"><b>暂无访问记录</b><span>打开交易复盘或手记后会出现在这里。</span></div>`}</div>`;
+      document.querySelectorAll("[data-history-type]").forEach((button) => {
+        button.addEventListener("click", async () => {
+          document.body.classList.remove("drawer-open");
+          if (button.dataset.historyType === "trade") {
+            const trade = dashboard?.trades?.find((row) => row.tradeId === button.dataset.historyId);
+            if (trade) openTradeWorkspace(trade);
+            else notify("这笔交易当前不可打开", true);
+          } else {
+            try { await articles.open(button.dataset.historyId); }
+            catch (error) { notify(error.message, true); }
+          }
+        });
+      });
+    } catch (error) {
+      $("drawerContent").innerHTML = `<div class="drawer-sub">ACCESS HISTORY</div><h2>访问历史</h2><p class="trash-intro">${esc(error.message)}</p>`;
+    }
+  }
+
   function tradeRouteId() {
     const match = location.hash.match(/^#trade=(TR-\d+)$/);
     return match ? match[1] : "";
@@ -656,6 +700,7 @@ import { safeReturnHash, tokenNeedsRefresh } from "./session.js?v=20260804-1";
     document.body.classList.remove("drawer-open");
     clearAttachmentUrls();
     activeTradeId = trade.tradeId;
+    if (!sameTrade) recordAccess("trade", trade.tradeId, `${trade.instrument} ${trade.contract} · ${trade.direction}单`);
     if (historyMode !== "none") setTradeRoute(trade.tradeId, historyMode);
     const attachments = trade.attachments || [];
     if (evidenceCarouselTradeId !== trade.tradeId) {
@@ -838,6 +883,7 @@ import { safeReturnHash, tokenNeedsRefresh } from "./session.js?v=20260804-1";
       articles.setSession(session.user);
       const canEdit = currentUser.role === "editor";
       $("trashButton").hidden = !canEdit;
+      $("accessHistoryButton").hidden = !canEdit;
       $("exportButton").hidden = !canEdit;
       $("userAvatar").src = session.user.avatar || "";
       $("userName").textContent = session.user.name || session.user.login;
@@ -857,6 +903,7 @@ import { safeReturnHash, tokenNeedsRefresh } from "./session.js?v=20260804-1";
   $("loginButton").addEventListener("click", login);
   $("logoutButton").addEventListener("click", logout);
   $("trashButton").addEventListener("click", openTrashDrawer);
+  $("accessHistoryButton").addEventListener("click", openAccessHistoryDrawer);
   $("exportButton").addEventListener("click", exportBackup);
   Object.values(selects).forEach((select) => select.addEventListener("change", () => { ledgerPage = 1; render(); }));
   $("resetFilters").addEventListener("click", () => { Object.values(selects).forEach((select) => { select.value = ""; }); ledgerPage = 1; render(); });

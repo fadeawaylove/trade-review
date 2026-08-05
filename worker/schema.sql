@@ -43,6 +43,20 @@ CREATE TABLE IF NOT EXISTS revoked_sessions (
 
 CREATE INDEX IF NOT EXISTS idx_revoked_sessions_expires_at ON revoked_sessions(expires_at);
 
+CREATE TABLE IF NOT EXISTS access_history (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  actor TEXT NOT NULL,
+  resource_type TEXT NOT NULL CHECK (resource_type IN ('trade', 'article')),
+  resource_id TEXT NOT NULL,
+  action TEXT NOT NULL CHECK (action IN ('view')),
+  title TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_access_history_created_at ON access_history(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_access_history_actor_created_at ON access_history(actor, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_access_history_resource ON access_history(resource_type, resource_id, created_at DESC);
+
 CREATE TABLE IF NOT EXISTS trade_attachments (
   id TEXT PRIMARY KEY,
   trade_id TEXT NOT NULL,

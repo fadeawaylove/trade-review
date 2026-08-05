@@ -41,7 +41,7 @@ function dateTime(value) {
   return value ? new Intl.DateTimeFormat("zh-CN", { dateStyle: "medium", timeStyle: "short" }).format(new Date(value)) : "—";
 }
 
-export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify, prepareImage, openTrade }) {
+export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify, prepareImage, openTrade, recordAccess }) {
   let summaries = [];
   let deletedSummaries = [];
   let current = null;
@@ -407,10 +407,12 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
   async function openArticle(articleId, { historyMode = "push" } = {}) {
     if (dirty && !confirm("当前编辑内容尚未保存，确定离开吗？")) return;
     const deleted = trashMode ? "?deleted=1" : "";
+    const previousId = current?.id;
     const payload = await apiFetch(`/api/articles/${encodeURIComponent(articleId)}${deleted}`);
     current = payload.article;
     setDirty(false);
     renderReader(current);
+    if (previousId !== current.id) recordAccess?.("article", current.id, current.title);
     if (historyMode !== "none") setHash(articleHash(articleId), historyMode);
   }
 

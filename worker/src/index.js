@@ -1,4 +1,5 @@
 import { githubAccessRole, isAllowedGithubLogin } from "./access.js";
+import { handleAccessHistoryRequest } from "./access-history.js";
 import { handleArticleRequest } from "./articles.js";
 
 const encoder = new TextEncoder();
@@ -308,6 +309,10 @@ export default {
     if (url.pathname === "/api/session/logout" && request.method === "POST") {
       await revokeSession(env, user);
       return json(request, env, { ok: true });
+    }
+    if (url.pathname === "/api/access-history") {
+      const accessHistoryResponse = await handleAccessHistoryRequest(request, env, user, url, { json });
+      if (accessHistoryResponse) return accessHistoryResponse;
     }
     if (user.role !== "editor" && !["GET", "HEAD"].includes(request.method)) {
       return json(request, env, { error: "当前账号仅有浏览权限" }, 403);
