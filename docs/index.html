@@ -12,9 +12,9 @@
   <link rel="apple-touch-icon" sizes="180x180" href="./apple-touch-icon.png?v=20260720-1">
   <link rel="manifest" href="./site.webmanifest">
   <link rel="stylesheet" href="./styles.css?v=20260810-1">
-  <link rel="stylesheet" href="./readability.css?v=20260810-3">
+  <link rel="stylesheet" href="./readability.css?v=20260810-4">
   <link rel="stylesheet" href="./vendor/vditor/dist/index.css?v=3.11.2">
-  <link rel="stylesheet" href="./articles.css?v=20260805-1">
+  <link rel="stylesheet" href="./articles.css?v=20260810-2">
 </head>
 <body>
   <div class="grain" aria-hidden="true"></div>
@@ -80,7 +80,7 @@
       </section>
 
       <section class="hero-grid">
-        <article class="panel chart-panel">
+        <article class="panel chart-panel" id="equityChartPanel">
           <div class="panel-head chart-panel-head">
             <div><small>REALIZED EQUITY · DAILY OHLC</small><h2>累计净盈亏日 K</h2></div>
             <div class="chart-head-tools">
@@ -95,6 +95,7 @@
                   <button type="button" id="equityEarlier" aria-label="查看更早的交易日">←</button>
                   <button type="button" id="equityLater" aria-label="查看更新的交易日">→</button>
                 </div>
+                <button class="equity-focus-toggle" type="button" id="equityFocusToggle" aria-pressed="false" aria-label="进入日K图专注视图">专注视图</button>
               </div>
             </div>
           </div>
@@ -143,41 +144,74 @@
       </div>
 
       <section class="articles-section" id="articlesSection" hidden>
-        <header class="article-masthead">
-          <div><p class="eyebrow">Journal · Method · Memory</p><h1>手记</h1><p class="subtitle">把交易经验整理成可检索、可回看的个人方法库。</p></div>
-          <div class="article-header-actions">
-            <button class="ghost-button space-switch-button" id="tradesSectionButton" type="button" aria-pressed="false">复盘台</button>
-            <button class="ghost-button" id="articleExportAll" type="button">导出随笔 JSON</button>
+        <header class="journal-header">
+          <button class="journal-brand" id="journalHomeButton" type="button" aria-label="返回手记首页">
+            <strong>手记</strong><span>PRIVATE JOURNAL</span>
+          </button>
+          <nav class="journal-nav" aria-label="手记导航">
+            <button id="journalArticlesButton" type="button" aria-current="page">文章</button>
+            <button id="journalTagsButton" type="button">标签</button>
+            <button id="journalAboutButton" type="button">关于</button>
+          </nav>
+          <div class="journal-actions">
+            <button class="journal-trades-button" id="journalTradesButton" type="button">交易复盘</button>
+            <button id="tradesSectionButton" type="button" hidden>复盘台</button>
+            <button class="journal-write-button" id="journalWriteButton" type="button">写文章</button>
+            <details class="journal-account" id="journalAccount">
+              <summary aria-label="打开手记管理菜单"><span id="journalUserInitial">我</span></summary>
+              <div class="journal-account-menu">
+                <div class="article-command-bar" id="articleRailControls">
+                  <header><strong>文章管理</strong><span id="journalUserName"></span></header>
+                  <label><span>搜索</span><input id="articleSearch" type="search" placeholder="标题、摘要或标签"></label>
+                  <div class="journal-filter-row">
+                    <label><span>状态</span><select id="articleStatusFilter"><option value="">全部状态</option><option value="draft">草稿</option><option value="final">已整理</option></select></label>
+                    <label><span>标签</span><select id="articleTagFilter"><option value="">全部标签</option></select></label>
+                  </div>
+                  <button class="primary-button full" id="newArticleButton" type="button">新建文章</button>
+                  <label class="ghost-button full article-import">导入 Markdown<input id="articleImportInput" type="file" accept=".md,.markdown,text/markdown,text/plain"></label>
+                  <button class="ghost-button full" id="articleTrashButton" type="button">文章回收站</button>
+                  <button class="ghost-button full" id="articleExportAll" type="button">导出文章 JSON</button>
+                </div>
+              </div>
+            </details>
           </div>
         </header>
-        <section class="article-command-bar" id="articleRailControls" aria-label="手记检索与操作" hidden>
-          <label class="article-search-field"><span>搜索</span><input id="articleSearch" type="search" placeholder="标题、摘要或标签"></label>
-          <label><span>状态</span><select id="articleStatusFilter"><option value="">全部状态</option><option value="draft">草稿</option><option value="final">已整理</option></select></label>
-          <label><span>标签</span><select id="articleTagFilter"><option value="">全部标签</option></select></label>
-          <div class="article-command-actions">
-            <button class="primary-button" id="newArticleButton" type="button">新建手记</button>
-            <label class="ghost-button article-import">导入 Markdown<input id="articleImportInput" type="file" accept=".md,.markdown,text/markdown,text/plain"></label>
-            <button class="ghost-button" id="articleTrashButton" type="button">手记回收站</button>
-          </div>
-        </section>
+
+        <div class="journal-home" id="articleHome">
+          <main class="journal-feed">
+            <section class="journal-feature" id="articleFeature" aria-label="封面文章"></section>
+            <section class="journal-recent" aria-labelledby="journalRecentTitle">
+              <header class="journal-section-heading">
+                <div><p>RECENT NOTES</p><h2 id="journalRecentTitle">最近文章</h2></div>
+                <div class="article-list-caption"><strong id="articleListCount">0 篇</strong><span id="articleListMode">按更新时间排序</span></div>
+              </header>
+              <div class="article-list" id="articleList"></div>
+            </section>
+            <section class="journal-about" id="journalAbout" hidden>
+              <p class="journal-kicker">ABOUT THIS JOURNAL</p>
+              <h2>写给未来的自己。</h2>
+              <p>这里收纳交易之外的思考，也记录方法、判断与生活片段。文章只服务于回看与沉淀，不追逐更新频率。</p>
+            </section>
+          </main>
+        </div>
+
         <div class="article-layout">
-          <aside class="article-list-panel" aria-label="随笔列表">
-            <div class="article-list-caption"><strong id="articleListCount">0 篇</strong><span id="articleListMode">按更新时间排序</span></div>
-            <div class="article-list" id="articleList"></div>
-          </aside>
           <article class="article-content-panel">
-            <div class="article-empty" id="articleEmpty"><b>选择一篇随笔开始阅读</b><p>也可以新建或导入 Markdown 文件。</p></div>
+            <div class="article-empty" id="articleEmpty" hidden><b>这里还没有文章</b><p>可以从右上角开始写第一篇。</p></div>
             <div id="articleReader" hidden>
+              <button class="article-reader-back" id="articleReaderBack" type="button">返回文章</button>
               <div class="article-reader-toolbar">
                 <button class="ghost-button" id="articleEditButton" type="button">编辑</button>
                 <button class="ghost-button" id="articleDownloadButton" type="button">导出 .md</button>
                 <button class="ghost-button" id="articleHistoryButton" type="button">版本历史</button>
                 <button class="danger-button" id="articleDeleteButton" type="button">移入回收站</button>
               </div>
-              <p class="eyebrow" id="articleReaderStatus"></p>
-              <h1 id="articleReaderTitle"></h1>
-              <div class="article-meta" id="articleReaderMeta"></div>
-              <div class="article-tags" id="articleReaderTags"></div>
+              <header class="article-reader-header">
+                <p class="eyebrow" id="articleReaderStatus"></p>
+                <h1 id="articleReaderTitle"></h1>
+                <div class="article-meta" id="articleReaderMeta"></div>
+                <div class="article-tags" id="articleReaderTags"></div>
+              </header>
               <div class="article-markdown" id="articleMarkdown"></div>
             </div>
             <form id="articleEditor" role="dialog" aria-modal="true" aria-labelledby="articleEditorHeading" hidden>
@@ -270,6 +304,6 @@
   <script src="./config.js"></script>
   <script src="./vendor/vditor/dist/js/icons/ant.js?v=3.11.2"></script>
   <script src="./vendor/vditor/dist/index.min.js?v=3.11.2"></script>
-  <script type="module" src="./app.js?v=20260810-3"></script>
+  <script type="module" src="./app.js?v=20260810-5"></script>
 </body>
 </html>

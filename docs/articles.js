@@ -41,6 +41,10 @@ function dateTime(value) {
   return value ? new Intl.DateTimeFormat("zh-CN", { dateStyle: "medium", timeStyle: "short" }).format(new Date(value)) : "—";
 }
 
+function dateOnly(value) {
+  return value ? new Intl.DateTimeFormat("zh-CN", { year: "numeric", month: "long", day: "numeric" }).format(new Date(value)) : "—";
+}
+
 export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify, prepareImage, openTrade, recordAccess }) {
   let summaries = [];
   let deletedSummaries = [];
@@ -302,7 +306,7 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
     $("tradesSection").hidden = articlesVisible;
     $("articlesSection").hidden = !articlesVisible;
     $("tradeRailControls").hidden = articlesVisible;
-    $("articleRailControls").hidden = !articlesVisible;
+    document.body.classList.toggle("articles-open", articlesVisible);
     $("tradesSectionButton").setAttribute("aria-pressed", String(!articlesVisible));
     $("articlesSectionButton").setAttribute("aria-pressed", String(articlesVisible));
     if (articlesVisible) {
@@ -312,6 +316,28 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
       if (trackDashboard) recordAccess?.("dashboard", "main", "日内交易复盘台");
       if (updateHistory && location.hash.startsWith("#essay")) setHash("");
     }
+    if (articlesVisible && !articleIdFromHash(location.hash) && $("articleEditor").hidden) showArticleHome();
+  }
+
+  function setJournalNav(active) {
+    $("journalArticlesButton").toggleAttribute("aria-current", active === "articles");
+    $("journalTagsButton").toggleAttribute("aria-current", active === "tags");
+    $("journalAboutButton").toggleAttribute("aria-current", active === "about");
+  }
+
+  function showArticleHome({ clearCurrent = true } = {}) {
+    if (clearCurrent) current = null;
+    $("articleHome").hidden = false;
+    $("articleReader").hidden = true;
+    $("articleHistory").hidden = true;
+    $("articleEditor").hidden = true;
+    $("articleEmpty").hidden = true;
+    $("articleEditor").closest(".article-layout").hidden = true;
+    $("journalAbout").hidden = true;
+    document.body.classList.remove("article-writing-open");
+    $("articleEditor").closest(".article-layout").classList.remove("is-editing");
+    setJournalNav("articles");
+    renderList();
   }
 
   function articleFilters() {
@@ -336,18 +362,29 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
     $("articleListCount").textContent = `${rows.length} 篇`;
     $("articleListMode").textContent = trashMode ? "回收站" : "按更新时间排序";
     $("articleTrashButton").textContent = trashMode ? "返回全部随笔" : `随笔回收站${deletedSummaries.length ? ` ${deletedSummaries.length}` : ""}`;
+    const featured = rows[0];
+    $("articleFeature").hidden = trashMode;
+    $("articleFeature").innerHTML = featured && !trashMode ? `
+      <button class="journal-feature-link" type="button" data-article-id="${featured.id}">
+        <h1>${esc(featured.title)}</h1>
+        <p>${esc(featured.excerpt || "打开文章，继续这段尚未写完的思考。")}</p>
+        <span class="journal-feature-meta"><span>${featured.tags?.[0] ? esc(featured.tags[0]) : featured.status === "final" ? "已整理" : "草稿"}</span><time>${esc(dateOnly(featured.updatedAt))}</time></span>
+      </button>` : "";
+    const listRows = trashMode ? rows : rows.slice(1);
     if (!rows.length) {
-      $("articleList").innerHTML = `<div class="article-list-empty">${trashMode ? "回收站中没有随笔" : "当前条件下没有随笔"}</div>`;
-      return;
-    }
-    $("articleList").innerHTML = rows.map((article) => `
+      $("articleList").innerHTML = `<div class="article-list-empty">${trashMode ? "回收站中没有文章" : "当前条件下没有文章"}</div>`;
+    } else if (!listRows.length) {
+      $("articleList").innerHTML = `<div class="article-list-empty">封面文章之外，暂时没有更多内容。</div>`;
+    } else {
+      $("articleList").innerHTML = listRows.map((article) => `
       <button class="article-list-item ${article.id === current?.id ? "active" : ""}" type="button" data-article-id="${article.id}">
-        <small>${article.status === "final" ? "已整理" : "草稿"}${article.deletedAt ? " · 已删除" : ""}</small>
-        <b>${esc(article.title)}</b><p>${esc(article.excerpt || "暂无摘要")}</p>
-        ${(article.tags || []).length ? `<span class="article-list-tags">${article.tags.map((tag) => `<i>${esc(tag)}</i>`).join("")}</span>` : ""}
-        <span>${esc(dateTime(article.updatedAt))}</span>
+        <span class="article-list-title"><b>${esc(article.title)}</b></span>
+        <span class="article-list-excerpt">${esc(article.excerpt || "暂无摘要")}</span>
+        <span class="article-list-date">${esc(dateOnly(article.updatedAt))}</span>
+        <span class="article-list-topic">${article.deletedAt ? "已删除" : article.tags?.[0] ? esc(article.tags[0]) : article.status === "final" ? "随笔" : "草稿"}</span>
       </button>`).join("");
-    $("articleList").querySelectorAll("[data-article-id]").forEach((button) => button.addEventListener("click", () => openArticle(button.dataset.articleId)));
+    }
+    $("articleHome").querySelectorAll("[data-article-id]").forEach((button) => button.addEventListener("click", () => openArticle(button.dataset.articleId)));
   }
 
   async function loadSummaries() {
@@ -389,6 +426,8 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
     revokeImages();
     document.body.classList.remove("article-writing-open");
     $("articleEditor").closest(".article-layout").classList.remove("is-editing");
+    $("articleHome").hidden = true;
+    $("articleEditor").closest(".article-layout").hidden = false;
     $("articleEmpty").hidden = true;
     $("articleEditor").hidden = true;
     $("articleHistory").hidden = true;
@@ -402,6 +441,7 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
     $("articleDeleteButton").hidden = !canEdit();
     $("articleDeleteButton").textContent = article.deletedAt ? "恢复随笔" : "移入回收站";
     $("articleHistoryButton").hidden = !canEdit() || Boolean(article.deletedAt);
+    setJournalNav("articles");
     toggleTradePicker(false);
     hydrateArticleImages($("articleMarkdown"));
     renderList();
@@ -499,6 +539,8 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
       renderList();
     }
     current = article?.id ? article : null;
+    $("articleHome").hidden = true;
+    $("articleEditor").closest(".article-layout").hidden = false;
     $("articleEmpty").hidden = true;
     $("articleReader").hidden = true;
     $("articleHistory").hidden = true;
@@ -721,10 +763,9 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
     try {
       await apiFetch(`/api/articles/${encodeURIComponent(current.id)}`, { method: "DELETE" });
       current = null;
-      $("articleReader").hidden = true;
-      $("articleEmpty").hidden = false;
       await loadSummaries();
       setHash("#essays", "replace");
+      showArticleHome();
       notify("随笔已移入回收站");
     } catch (error) { notify(error.message, true); }
   }
@@ -734,12 +775,8 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
     discardEditorPrivateImages();
     trashMode = !trashMode;
     current = null;
-    $("articleReader").hidden = true;
-    $("articleEditor").hidden = true;
-    document.body.classList.remove("article-writing-open");
-    $("articleEditor").closest(".article-layout").classList.remove("is-editing");
-    $("articleEmpty").hidden = false;
-    renderList();
+    setHash("#essays", "replace");
+    showArticleHome();
   }
 
   async function restoreCurrent() {
@@ -765,10 +802,7 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
     else {
       discardPendingImages();
       discardEditorPrivateImages();
-      $("articleEditor").hidden = true;
-      document.body.classList.remove("article-writing-open");
-      $("articleEditor").closest(".article-layout").classList.remove("is-editing");
-      $("articleEmpty").hidden = false;
+      showArticleHome();
     }
   }
 
@@ -793,10 +827,31 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
     if (!loaded) await loadSummaries();
     const id = articleIdFromHash(location.hash);
     if (id) await openArticle(id, { historyMode: "none" });
+    else showArticleHome();
   }
 
   $("tradesSectionButton").addEventListener("click", () => showSection("trades"));
   $("articlesSectionButton").addEventListener("click", () => showSection("articles"));
+  $("journalHomeButton").addEventListener("click", () => { setHash("#essays"); showArticleHome(); });
+  $("journalArticlesButton").addEventListener("click", () => { setHash("#essays"); showArticleHome(); });
+  $("journalTradesButton").addEventListener("click", () => showSection("trades"));
+  $("journalWriteButton").addEventListener("click", () => editArticle(null).catch((error) => notify(error.message, true)));
+  $("journalTagsButton").addEventListener("click", () => {
+    setHash("#essays");
+    showArticleHome({ clearCurrent: false });
+    setJournalNav("tags");
+    $("journalAccount").open = true;
+    $("articleTagFilter").focus();
+  });
+  $("journalAboutButton").addEventListener("click", () => {
+    setHash("#essays");
+    showArticleHome({ clearCurrent: false });
+    $("journalFeature").hidden = true;
+    $("journalAbout").hidden = false;
+    setJournalNav("about");
+    $("journalAbout").scrollIntoView({ behavior: "smooth", block: "start" });
+  });
+  $("articleReaderBack").addEventListener("click", () => { setHash("#essays"); showArticleHome(); });
   ["articleSearch", "articleStatusFilter", "articleTagFilter"].forEach((id) => $(id).addEventListener(id === "articleSearch" ? "input" : "change", renderList));
   $("newArticleButton").addEventListener("click", () => editArticle(null).catch((error) => notify(error.message, true)));
   $("articleImportInput").addEventListener("change", async (event) => {
@@ -869,6 +924,9 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
       $("articleTrashButton").hidden = !canEdit();
       $("articleExportAll").hidden = !canEdit();
       $("articleImageInput").disabled = !canEdit();
+      $("journalWriteButton").hidden = !canEdit();
+      $("journalUserName").textContent = user?.name || user?.login || "私人手记";
+      $("journalUserInitial").textContent = (user?.name || user?.login || "我").trim().slice(0, 1).toUpperCase();
       $("articleEmpty").querySelector("p").textContent = canEdit()
         ? "也可以新建或导入 Markdown 文件。"
         : "请选择一篇手记进行阅读。";

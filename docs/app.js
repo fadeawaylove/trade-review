@@ -2,7 +2,7 @@ import { buildEquityChartModel, chartWidthForRange, formatEquityAxisValue, forma
 import { buildEvidenceCarouselState } from "./evidence-carousel.js?v=20260721-1";
 import { clearAttachmentCache, loadAttachmentBlob, removeAttachmentFromCache } from "./attachment-cache.js?v=20260804-1";
 import { paginateLedgerRows } from "./ledger-pagination.js?v=20260729-1";
-import { initArticles } from "./articles.js?v=20260805-3";
+import { initArticles } from "./articles.js?v=20260810-4";
 import { safeReturnHash, tokenNeedsRefresh } from "./session.js?v=20260804-1";
 
 (() => {
@@ -35,6 +35,8 @@ import { safeReturnHash, tokenNeedsRefresh } from "./session.js?v=20260804-1";
   let equityChartTradeSignature = "";
   let equityChartScrollToLatest = false;
   let equityChartCompact = matchMedia("(max-width: 760px)").matches;
+  let equityChartFocused = false;
+  let equityChartResizeFrame = 0;
   let ledgerPage = 1;
   const articles = initArticles({
     apiFetch,
@@ -381,13 +383,21 @@ import { safeReturnHash, tokenNeedsRefresh } from "./session.js?v=20260804-1";
     setMetric("kpiDrawdown", `¥ ${money(summary.maxDrawdown)}`, summary.maxDrawdown);
   }
 
+  function setEquityChartFocus(focused) {
+    equityChartFocused = focused;
+    document.body.classList.toggle("equity-chart-focus", focused);
+    if (dashboard) renderChart(selectedTrades());
+  }
+
   function renderChart(trades) {
     const svg = $("equityChart");
+    const panel = $("equityChartPanel");
     const shell = $("equityChartShell");
     const viewport = $("equityChartViewport");
     const tooltip = $("equityTooltip");
     const earlierButton = $("equityEarlier");
     const laterButton = $("equityLater");
+    const focusButton = $("equityFocusToggle");
     const rangeButtons = [...document.querySelectorAll("[data-chart-range]")];
     const compact = matchMedia("(max-width: 760px)").matches;
     const totalDays = new Set(trades.map((trade) => trade.dateLabel || trade.date || "日期待确认")).size;
@@ -399,12 +409,20 @@ import { safeReturnHash, tokenNeedsRefresh } from "./session.js?v=20260804-1";
       equityChartScrollToLatest = equityChartRange === "all";
     }
     const visibleCount = equityChartVisibleCount ?? resolveChartRange(equityChartRange, compact);
-    const chartWidth = chartWidthForRange(totalDays, equityChartRange === "all" && equityChartVisibleCount == null ? "all" : "short");
+    const baseChartWidth = compact ? Math.max(320, viewport.clientWidth || panel.clientWidth) : 900;
+    const chartWidth = chartWidthForRange(totalDays, equityChartRange === "all" && equityChartVisibleCount == null ? "all" : "short", baseChartWidth);
+    const chartHeight = equityChartFocused
+      ? Math.max(compact ? 360 : 460, panel.clientHeight - panel.querySelector(".chart-panel-head").offsetHeight - 5)
+      : compact
+        ? Math.max(320, Math.min(390, Math.round(window.innerHeight * .46)))
+        : Math.max(440, Math.min(560, Math.round(window.innerHeight * .54)));
+    svg.style.setProperty("--equity-chart-height", `${chartHeight}px`);
     const model = buildEquityChartModel(trades, {
       width: chartWidth,
+      height: chartHeight,
       visibleCount,
       windowEnd: equityChartWindowEnd,
-      pad: { t: 74 },
+      pad: compact ? { l: 48, r: 70, t: 82, b: 42 } : { t: 68, b: 46 },
     });
     const { width: W, height: H, pad, values, points, candles, hitBounds, ticks, tickYs, labelIndices, base } = model;
     equityChartWindowEnd = model.visibleEnd;
@@ -434,8 +452,15 @@ import { safeReturnHash, tokenNeedsRefresh } from "./session.js?v=20260804-1";
     });
     earlierButton.disabled = equityChartRange === "all" || !model.canMoveEarlier;
     laterButton.disabled = equityChartRange === "all" || !model.canMoveLater;
+    focusButton.setAttribute("aria-pressed", String(equityChartFocused));
+    focusButton.setAttribute("aria-label", equityChartFocused ? "退出日K图专注视图" : "进入日K图专注视图");
+    focusButton.textContent = equityChartFocused ? "退出专注" : "专注视图";
+    focusButton.onclick = () => {
+      setEquityChartFocus(!equityChartFocused);
+      focusButton.focus();
+    };
     if (!trades.length) {
-      svg.innerHTML = `<text x="450" y="140" text-anchor="middle" class="axis-label">暂无交易</text>`;
+      svg.innerHTML = `<text x="${W / 2}" y="${H / 2}" text-anchor="middle" class="axis-label">暂无交易</text>`;
       $("chartCaption").textContent = "0 个交易日";
       return;
     }
@@ -1005,6 +1030,12 @@ import { safeReturnHash, tokenNeedsRefresh } from "./session.js?v=20260804-1";
       else if (event.key === "-") setLightboxZoom(lightboxZoom - .2);
       return;
     }
+    if (event.key === "Escape" && equityChartFocused) {
+      event.preventDefault();
+      setEquityChartFocus(false);
+      $("equityFocusToggle").focus();
+      return;
+    }
     if (event.key === "Escape") {
       if (!$("tradeWorkspace").hidden) requestCloseTradeWorkspace();
       else closeDrawer();
@@ -1018,17 +1049,14 @@ import { safeReturnHash, tokenNeedsRefresh } from "./session.js?v=20260804-1";
     const trade = dashboard?.trades?.find((row) => row.tradeId === activeTradeId);
     if (trade) uploadAttachmentFiles(files, trade);
   });
-  window.addEventListener("storage", (event) => {
-    if (event.key !== TOKEN_KEY) return;
-    token = event.newValue || "";
-    if (!token) setAuthVisible(true);
-  });
   window.addEventListener("resize", () => {
-    const nextCompact = matchMedia("(max-width: 760px)").matches;
-    if (nextCompact === equityChartCompact) return;
-    equityChartCompact = nextCompact;
-    equityChartWindowEnd = null;
-    if (dashboard) renderChart(selectedTrades());
+    cancelAnimationFrame(equityChartResizeFrame);
+    equityChartResizeFrame = requestAnimationFrame(() => {
+      const nextCompact = matchMedia("(max-width: 760px)").matches;
+      if (nextCompact !== equityChartCompact) equityChartWindowEnd = null;
+      equityChartCompact = nextCompact;
+      if (dashboard) renderChart(selectedTrades());
+    });
   });
   window.addEventListener("popstate", () => {
     const trade = dashboard?.trades?.find((row) => row.tradeId === tradeRouteId());

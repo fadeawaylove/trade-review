@@ -37,7 +37,7 @@ main{padding-top:40px}
 .panel-head{padding:24px 25px 0}
 .panel-head small,.panel-head>span{font-size:12px}
 .panel-head h2{font-size:23px}
-.chart-panel svg{height:390px;padding:12px 15px 18px}
+.chart-panel svg{height:var(--equity-chart-height,460px);padding:0}
 .axis-label{font-size:12px}
 .brief-panel{padding:24px 25px 28px}
 .brief-index{font-size:48px}
@@ -84,6 +84,7 @@ footer{font-size:12px;line-height:1.7}
 .workspace-back,.workspace-nav,.workspace-save{font-size:14px}.workspace-identity span,.summary-label,.workspace-result>span,.review-heading span{font-size:12px}.workspace-result>small,.workspace-facts,.workspace-facts small,.review-heading p{font-size:14px}.workspace-evidence .edit-hint{font-size:14px}.workspace-evidence .evidence-meta b{font-size:14px}.workspace-evidence .evidence-meta small,.workspace-evidence .evidence-delete,.workspace-evidence .upload-state{font-size:12px}.workspace-review .edit-field{font-size:14px}
 
 /* Equity chart: professional OHLC surface, compact quote strip, and precise guides. */
+.hero-grid{grid-template-columns:minmax(0,1fr)}
 .chart-panel{container-type:inline-size}
 .chart-panel-head{align-items:flex-start}
 .chart-head-tools{display:flex;align-items:flex-end;flex-direction:column;gap:8px}
@@ -96,6 +97,10 @@ footer{font-size:12px;line-height:1.7}
 .equity-range button:focus-visible,.equity-window-nav button:focus-visible{outline:2px solid rgba(185,129,41,.5);outline-offset:2px}
 .equity-window-nav button{min-width:31px;padding-inline:7px;font-size:14px}
 .equity-window-nav button:disabled{opacity:.3;cursor:not-allowed}
+.equity-focus-toggle{min-height:38px;padding:7px 12px;border:1px solid rgba(43,60,80,.18);border-radius:9px;color:#425364;background:rgba(255,255,255,.68);font:700 11px Bahnschrift,sans-serif;cursor:pointer;transition:background .16s,color .16s,transform .16s}
+.equity-focus-toggle:hover{color:var(--profit);background:#fff;transform:translateY(-1px)}
+.equity-focus-toggle:focus-visible{outline:2px solid rgba(185,129,41,.5);outline-offset:2px}
+.equity-focus-toggle[aria-pressed="true"]{color:#fff;background:#2b3c50}
 .equity-chart-shell{position:relative;margin-top:5px}
 .equity-chart-viewport{overflow-x:auto;overscroll-behavior-inline:contain;scrollbar-color:rgba(33,49,68,.22) transparent;scrollbar-width:thin;cursor:crosshair}
 .equity-chart-viewport.is-dragging{cursor:grabbing;user-select:none}
@@ -130,6 +135,12 @@ footer{font-size:12px;line-height:1.7}
 .equity-tooltip-head b{font:700 13px Bahnschrift,sans-serif;white-space:nowrap}.equity-tooltip-head>span{max-width:145px;overflow:hidden;color:#667b8e;font-size:10px;text-overflow:ellipsis;white-space:nowrap}
 .equity-tooltip-values{display:grid;min-width:0;flex:1;grid-template-columns:repeat(5,minmax(72px,1fr));margin:0}.equity-tooltip-values>div{display:grid;min-width:0;gap:2px;padding:0 10px;border-left:1px solid rgba(74,107,139,.11)}.equity-tooltip-values>div:first-child{border-left:0}.equity-tooltip-values dt,.equity-tooltip-values dd{min-width:0;margin:0;white-space:nowrap}.equity-tooltip-values dt{color:#758493;font-size:9px;letter-spacing:.08em}.equity-tooltip-values dd{overflow:hidden;color:#263b50;font:700 11px Bahnschrift,sans-serif;text-overflow:ellipsis}.equity-tooltip-values dd.positive{color:#c94338!important}.equity-tooltip-values dd.negative{color:#168b63!important}
 
+body.equity-chart-focus{overflow:hidden}
+body.equity-chart-focus .chart-panel{position:fixed;inset:18px;z-index:60;display:flex;overflow:hidden;flex-direction:column;border-color:rgba(43,60,80,.2);background:#fbfaf6;box-shadow:0 32px 100px rgba(15,27,39,.28)}
+body.equity-chart-focus .chart-panel-head{flex:0 0 auto;padding:22px 25px 0}
+body.equity-chart-focus .equity-chart-shell{min-height:0;flex:1}
+body.equity-chart-focus .equity-chart-viewport{height:100%}
+
 @container (max-width:720px){
   .equity-tooltip{top:8px;right:12px;display:block;left:58px;min-height:0;padding:7px 9px;border-radius:9px}
   .equity-tooltip-head{min-width:0;align-items:center;flex-direction:row;justify-content:space-between;padding:0 0 5px;border-right:0;border-bottom:1px solid rgba(74,107,139,.14)}
@@ -154,7 +165,10 @@ footer{font-size:12px;line-height:1.7}
   .chart-head-tools{align-items:flex-start;margin-top:13px}
   .equity-toolbar{width:100%;justify-content:space-between}
   .equity-range button{padding-inline:8px}
-  .chart-panel svg{height:290px}
+  .equity-focus-toggle{min-height:36px;padding-inline:9px}
+  .chart-panel svg{height:var(--equity-chart-height,340px)}
+  body.equity-chart-focus .chart-panel{inset:7px}
+  body.equity-chart-focus .chart-panel-head{padding:14px 14px 0}
   .bar-row{grid-template-columns:88px minmax(0,1fr) 90px;font-size:13px}
   table{font-size:13px}
   th,td{padding:13px}
