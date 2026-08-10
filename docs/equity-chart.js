@@ -1,6 +1,6 @@
 const DEFAULT_WIDTH = 900;
 const DEFAULT_HEIGHT = 280;
-const DEFAULT_PAD = Object.freeze({ l: 55, r: 24, t: 24, b: 36 });
+const DEFAULT_PAD = Object.freeze({ l: 72, r: 70, t: 24, b: 42 });
 const MIN_SPARSE_SLOTS = 7;
 const MIN_ALL_SLOT_WIDTH = 26;
 const roundMoney = (value) => Math.round((value + Number.EPSILON) * 100) / 100;
@@ -11,26 +11,87 @@ export function resolveChartRange(mode, compact = false) {
   return compact ? 15 : 30;
 }
 
+export function resolveEquityZoomWindow({
+  totalDays,
+  visibleStart,
+  visibleEnd,
+  nextVisibleCount,
+  anchorRatio = .5,
+  minimumVisibleCount = 6,
+}) {
+  const total = Math.max(0, Math.floor(Number(totalDays) || 0));
+  if (!total) return { visibleCount: 0, windowEnd: 0 };
+  const ratio = Math.max(0, Math.min(1, Number(anchorRatio) || 0));
+  const currentStart = Math.max(0, Math.min(total - 1, Math.floor(Number(visibleStart) || 0)));
+  const currentEnd = Math.max(currentStart + 1, Math.min(total, Math.floor(Number(visibleEnd) || total)));
+  const currentCount = currentEnd - currentStart;
+  const minimum = Math.min(total, Math.max(1, Math.floor(Number(minimumVisibleCount) || 1)));
+  const visibleCount = Math.max(minimum, Math.min(total, Math.round(Number(nextVisibleCount) || currentCount)));
+  const anchorIndex = currentStart + ratio * Math.max(0, currentCount - 1);
+  const maximumStart = Math.max(0, total - visibleCount);
+  const nextStart = Math.max(0, Math.min(maximumStart, Math.round(anchorIndex - ratio * Math.max(0, visibleCount - 1))));
+  return { visibleCount, windowEnd: nextStart + visibleCount };
+}
+
 export function chartWidthForRange(totalDays, mode, baseWidth = DEFAULT_WIDTH) {
   if (mode !== "all") return baseWidth;
   return Math.max(baseWidth, DEFAULT_PAD.l + DEFAULT_PAD.r + Math.max(MIN_SPARSE_SLOTS, totalDays) * MIN_ALL_SLOT_WIDTH);
 }
 
+function normalizedDateParts(value) {
+  const text = String(value || "").trim();
+  const match = text.match(/^(\d{4})[/-](\d{1,2})[/-](\d{1,2})$/)
+    || text.match(/^(\d{4})年(\d{1,2})月(\d{1,2})日$/);
+  if (!match) return null;
+  return [match[1], match[2].padStart(2, "0"), match[3].padStart(2, "0")];
+}
+
+function normalizeDateKey(value) {
+  const parts = normalizedDateParts(value);
+  return parts ? parts.join("-") : String(value || "").trim();
+}
+
+export function formatEquityDateLabel(value) {
+  const parts = normalizedDateParts(value);
+  return parts ? `${parts[1]}-${parts[2]}` : String(value || "").replace(/^\d{4}[/-]/, "");
+}
+
+export function formatEquityAxisValue(value) {
+  const numeric = Number(value) || 0;
+  const sign = numeric < 0 ? "-" : "";
+  const absolute = Math.abs(numeric);
+  const compact = (amount, suffix) => `${sign}¥${amount.toFixed(2).replace(/\.00$/, "").replace(/(\.\d)0$/, "$1")}${suffix}`;
+  if (absolute >= 10_000) return compact(absolute / 10_000, "万");
+  if (absolute >= 1_000) return compact(absolute / 1_000, "k");
+  return `${sign}¥${Math.round(absolute)}`;
+}
+
 function monthKey(value) {
-  const match = String(value || "").replaceAll("/", "-").match(/^(\d{4})-(\d{2})/);
-  return match ? `${match[1]}-${match[2]}` : "";
+  const parts = normalizedDateParts(value);
+  return parts ? `${parts[0]}-${parts[1]}` : "";
 }
 
 function buildLabelIndices(values, slotWidth) {
   if (!values.length) return [];
-  const step = Math.max(1, Math.ceil(66 / Math.max(1, slotWidth)));
-  const indices = new Set([0, values.length - 1]);
-  for (let index = 0; index < values.length; index += step) indices.add(index);
+  const step = Math.max(1, Math.ceil(72 / Math.max(1, slotWidth)));
+  const required = new Set([0, values.length - 1]);
   for (let index = 1; index < values.length; index += 1) {
-    const currentMonth = monthKey(values[index].date);
-    if (currentMonth && currentMonth !== monthKey(values[index - 1].date)) indices.add(index);
+    const currentMonth = monthKey(values[index].dateKey || values[index].date);
+    if (currentMonth && currentMonth !== monthKey(values[index - 1].dateKey || values[index - 1].date)) required.add(index);
+  }
+  const indices = new Set(required);
+  for (let index = 0; index < values.length; index += step) {
+    if ([...required].every((requiredIndex) => Math.abs(requiredIndex - index) >= step)) indices.add(index);
   }
   return [...indices].sort((a, b) => a - b);
+}
+
+function niceTickStep(span, targetIntervals = 4) {
+  const rough = Math.max(1, span / targetIntervals);
+  const magnitude = 10 ** Math.floor(Math.log10(rough));
+  const normalized = rough / magnitude;
+  const factor = normalized <= 1 ? 1 : normalized <= 2 ? 2 : normalized <= 2.5 ? 2.5 : normalized <= 5 ? 5 : 10;
+  return factor * magnitude;
 }
 
 function tradeOrderValue(trade, fallbackIndex) {
@@ -50,12 +111,13 @@ export function buildEquityChartModel(trades, options = {}) {
 
   trades.forEach((trade, tradeIndex) => {
     const date = trade.dateLabel || trade.date || "日期待确认";
-    if (!dayByDate.has(date)) {
-      const day = { date, trades: [] };
-      dayByDate.set(date, day);
+    const dateKey = normalizeDateKey(date);
+    if (!dayByDate.has(dateKey)) {
+      const day = { date, dateKey, displayDate: formatEquityDateLabel(dateKey), trades: [] };
+      dayByDate.set(dateKey, day);
       groupedTrades.push(day);
     }
-    dayByDate.get(date).trades.push({ trade, tradeIndex });
+    dayByDate.get(dateKey).trades.push({ trade, tradeIndex });
   });
 
   let cumulative = 0;
@@ -82,8 +144,10 @@ export function buildEquityChartModel(trades, options = {}) {
     const tradeIds = orderedTrades.map(({ trade }) => trade.tradeId);
     const lastTrade = orderedTrades.at(-1);
     return {
-      id: group.date,
+      id: group.dateKey,
       date: group.date,
+      dateKey: group.dateKey,
+      displayDate: group.displayDate,
       summary: `${group.trades.length} 笔完整交易`,
       open,
       high,
@@ -102,7 +166,7 @@ export function buildEquityChartModel(trades, options = {}) {
 
   if (!allValues.length) {
     return {
-      width, height, pad, values: [], points: [], candles: [], hitBounds: [], ticks: [], labelIndices: [], base: 0,
+      width, height, pad, values: [], points: [], candles: [], hitBounds: [], ticks: [], tickYs: [], labelIndices: [], base: 0,
       totalDays: 0, visibleStart: 0, visibleEnd: 0, canMoveEarlier: false, canMoveLater: false, layoutSlotCount: MIN_SPARSE_SLOTS,
     };
   }
@@ -121,8 +185,9 @@ export function buildEquityChartModel(trades, options = {}) {
   const observedMin = Math.min(0, ...values.flatMap((day) => [day.open, day.high, day.low, day.close]));
   const observedMax = Math.max(0, ...values.flatMap((day) => [day.open, day.high, day.low, day.close]));
   const observedSpan = Math.max(1, observedMax - observedMin);
-  const domainMin = observedMin - observedSpan * .08;
-  const domainMax = observedMax + observedSpan * .08;
+  const tickStep = niceTickStep(observedSpan * 1.16);
+  const domainMin = Math.floor((observedMin - observedSpan * .08) / tickStep) * tickStep;
+  const domainMax = Math.ceil((observedMax + observedSpan * .08) / tickStep) * tickStep;
   const span = domainMax - domainMin;
   const plotLeft = pad.l;
   const plotRight = width - pad.r;
@@ -132,7 +197,7 @@ export function buildEquityChartModel(trades, options = {}) {
   const x = (index) => plotLeft + (leadingSlots + index + .5) * slotWidth;
   const y = (value) => pad.t + (domainMax - value) / span * (height - pad.t - pad.b);
   const points = values.map((day, index) => [x(index), y(day.close)]);
-  const bodyWidth = Math.min(28, Math.max(6, slotWidth * .42));
+  const bodyWidth = Math.min(24, Math.max(6, slotWidth * .46));
   const candles = values.map((day, index) => {
     const openY = y(day.open);
     const closeY = y(day.close);
@@ -148,12 +213,14 @@ export function buildEquityChartModel(trades, options = {}) {
     };
   });
   const base = y(0);
-  const ticks = [0, .25, .5, .75, 1].map((ratio) => domainMax - span * ratio);
+  const tickIntervals = Math.max(1, Math.round(span / tickStep));
+  const ticks = Array.from({ length: tickIntervals + 1 }, (_, index) => domainMax - tickStep * index);
+  const tickYs = ticks.map(y);
   const hitBounds = points.map((point) => ({ start: point[0] - slotWidth / 2, end: point[0] + slotWidth / 2 }));
   const labelIndices = buildLabelIndices(values, slotWidth);
 
   return {
-    width, height, pad, values, points, candles, hitBounds, ticks, labelIndices, base, slotWidth, layoutSlotCount,
+    width, height, pad, values, points, candles, hitBounds, ticks, tickYs, labelIndices, base, slotWidth, layoutSlotCount,
     totalDays: allValues.length,
     visibleStart,
     visibleEnd,

@@ -1,4 +1,4 @@
-import { buildEquityChartModel, chartWidthForRange, resolveChartRange } from "./equity-chart.js?v=20260723-1";
+import { buildEquityChartModel, chartWidthForRange, formatEquityAxisValue, formatEquityDateLabel, resolveChartRange, resolveEquityZoomWindow } from "./equity-chart.js?v=20260810-3";
 import { buildEvidenceCarouselState } from "./evidence-carousel.js?v=20260721-1";
 import { clearAttachmentCache, loadAttachmentBlob, removeAttachmentFromCache } from "./attachment-cache.js?v=20260804-1";
 import { paginateLedgerRows } from "./ledger-pagination.js?v=20260729-1";
@@ -30,6 +30,7 @@ import { safeReturnHash, tokenNeedsRefresh } from "./session.js?v=20260804-1";
   let evidenceCarouselIndex = 0;
   let evidenceCarouselTradeId = "";
   let equityChartRange = "short";
+  let equityChartVisibleCount = null;
   let equityChartWindowEnd = null;
   let equityChartTradeSignature = "";
   let equityChartScrollToLatest = false;
@@ -393,18 +394,19 @@ import { safeReturnHash, tokenNeedsRefresh } from "./session.js?v=20260804-1";
     const tradeSignature = trades.map((trade) => `${trade.tradeId}:${trade.dateLabel || trade.date || ""}`).join("|");
     if (tradeSignature !== equityChartTradeSignature) {
       equityChartTradeSignature = tradeSignature;
+      equityChartVisibleCount = null;
       equityChartWindowEnd = null;
       equityChartScrollToLatest = equityChartRange === "all";
     }
-    const visibleCount = resolveChartRange(equityChartRange, compact);
-    const chartWidth = chartWidthForRange(totalDays, equityChartRange);
+    const visibleCount = equityChartVisibleCount ?? resolveChartRange(equityChartRange, compact);
+    const chartWidth = chartWidthForRange(totalDays, equityChartRange === "all" && equityChartVisibleCount == null ? "all" : "short");
     const model = buildEquityChartModel(trades, {
       width: chartWidth,
       visibleCount,
       windowEnd: equityChartWindowEnd,
       pad: { t: 74 },
     });
-    const { width: W, height: H, pad, values, points, candles, hitBounds, ticks, labelIndices } = model;
+    const { width: W, height: H, pad, values, points, candles, hitBounds, ticks, tickYs, labelIndices, base } = model;
     equityChartWindowEnd = model.visibleEnd;
     svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
     svg.style.setProperty("--equity-chart-width", W > 900 ? `${W}px` : "100%");
@@ -415,14 +417,16 @@ import { safeReturnHash, tokenNeedsRefresh } from "./session.js?v=20260804-1";
     viewport.onpointermove = null;
     viewport.onpointerup = null;
     viewport.onpointercancel = null;
+    viewport.onwheel = null;
     rangeButtons.forEach((button) => {
       const mode = button.dataset.chartRange;
       if (mode === "short") button.textContent = compact ? "近15日" : "近30日";
       if (mode === "long") button.textContent = compact ? "近30日" : "近60日";
       button.setAttribute("aria-pressed", String(mode === equityChartRange));
       button.onclick = () => {
-        if (equityChartRange === mode) return;
+        if (equityChartRange === mode && equityChartVisibleCount == null) return;
         equityChartRange = mode;
+        equityChartVisibleCount = null;
         equityChartWindowEnd = null;
         equityChartScrollToLatest = mode === "all";
         renderChart(trades);
@@ -435,33 +439,56 @@ import { safeReturnHash, tokenNeedsRefresh } from "./session.js?v=20260804-1";
       $("chartCaption").textContent = "0 个交易日";
       return;
     }
-    svg.innerHTML = `<title>累计已实现盈亏日K图</title><desc>每根K线代表一个交易日；开盘承接前一交易日收盘，最高和最低为当天按平仓时间顺序逐笔累加后的累计盈亏极值，收盘为当日结束时的累计净盈亏。悬停或使用左右方向键查看交易日数据。</desc>
-      ${ticks.map((value, index) => `<line class="axis" x1="${pad.l}" y1="${points.length ? pad.t + index / 4 * (H - pad.t - pad.b) : 0}" x2="${W - pad.r}" y2="${points.length ? pad.t + index / 4 * (H - pad.t - pad.b) : 0}"/><text class="axis-label" x="${pad.l - 9}" y="${pad.t + index / 4 * (H - pad.t - pad.b) + 3}" text-anchor="end">${Math.round(value)}</text>`).join("")}
+    const latestPoint = values.at(-1);
+    const latestY = points.at(-1)[1];
+    svg.innerHTML = `<title>累计已实现盈亏日K图</title><desc>每根K线代表一个交易日；开盘承接前一交易日收盘，最高和最低为当天按平仓时间顺序逐笔累加后的累计盈亏极值，收盘为当日结束时的累计净盈亏。移动十字光标查看行情，滚轮缩放，拖拽平移。</desc>
+      <defs><linearGradient id="equityPlotGradient" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#f7fafc"/><stop offset="100%" stop-color="#fffdf8"/></linearGradient></defs>
+      <rect class="equity-plot-surface" x="${pad.l}" y="${pad.t}" width="${W - pad.l - pad.r}" height="${H - pad.t - pad.b}" rx="8"/>
+      ${ticks.map((value, index) => `<line class="axis" x1="${pad.l}" y1="${tickYs[index]}" x2="${W - pad.r}" y2="${tickYs[index]}"/><text class="axis-label equity-value-label" x="${pad.l - 11}" y="${tickYs[index] + 3}" text-anchor="end">${formatEquityAxisValue(value)}</text>`).join("")}
+      <line class="equity-zero" x1="${pad.l}" y1="${base}" x2="${W - pad.r}" y2="${base}"/>
+      <line class="equity-last-line" x1="${pad.l}" y1="${latestY}" x2="${W - pad.r}" y2="${latestY}"/>
       ${candles.map((candle, index) => {
         const day = values[index];
-        const candleClass = day.close >= day.open ? "candle-profit" : "candle-loss";
+        const candleClass = day.close > day.open ? "candle-profit" : day.close < day.open ? "candle-loss" : "candle-flat";
         return `<g class="chart-target" data-index="${index}" role="img" tabindex="0" aria-label="${esc(`${day.date}，开盘 ${money(day.open)} 元，最高 ${money(day.high)} 元，最低 ${money(day.low)} 元，收盘 ${money(day.close)} 元，当日净盈亏 ${money(day.dayPnl)} 元，共 ${day.tradeCount} 笔交易`)}"><rect class="chart-hit" x="${hitBounds[index].start}" y="${pad.t}" width="${hitBounds[index].end - hitBounds[index].start}" height="${H - pad.t - pad.b}"/><line class="candle-wick ${candleClass}" x1="${candle.x}" y1="${candle.highY}" x2="${candle.x}" y2="${candle.lowY}"/><rect class="candle-body ${candleClass}" x="${candle.x - candle.bodyWidth / 2}" y="${candle.bodyY}" width="${candle.bodyWidth}" height="${candle.bodyHeight}" rx="1"><title>${esc(day.date)}｜开 ¥${money(day.open)}｜高 ¥${money(day.high)}｜低 ¥${money(day.low)}｜收 ¥${money(day.close)}</title></rect></g>`;
       }).join("")}
-      <line class="equity-guide" x1="0" y1="${pad.t}" x2="0" y2="${H - pad.b}"/>
-      ${labelIndices.map((index) => `<text class="axis-label equity-date-label" x="${points[index][0]}" y="${H - 12}" text-anchor="middle">${esc(String(values[index].date).replace(/^\d{4}[/-]/, ""))}</text>`).join("")}`;
+      <line class="equity-guide" id="equityGuideX" x1="0" y1="${pad.t}" x2="0" y2="${H - pad.b}"/>
+      <line class="equity-guide equity-guide-horizontal" id="equityGuideY" x1="${pad.l}" y1="0" x2="${W - pad.r}" y2="0"/>
+      <g class="equity-cursor-price" id="equityCursorPrice"><rect class="equity-cursor-value" id="equityCursorValue" x="${W - pad.r + 6}" y="-10" width="58" height="20" rx="5"/><text class="equity-cursor-label" id="equityCursorLabel" x="${W - pad.r + 35}" y="4" text-anchor="middle"></text></g>
+      <rect class="equity-last-value" x="${W - pad.r + 6}" y="${latestY - 10}" width="58" height="20" rx="5"/>
+      <text class="equity-last-label" x="${W - pad.r + 35}" y="${latestY + 4}" text-anchor="middle">${formatEquityAxisValue(latestPoint.close)}</text>
+      ${labelIndices.map((index) => `<text class="axis-label equity-date-label" x="${points[index][0]}" y="${H - 14}" text-anchor="middle">${esc(values[index].displayDate || formatEquityDateLabel(values[index].date))}</text>`).join("")}`;
     svg.setAttribute("aria-label", `累计已实现盈亏日K图，当前显示 ${values.length} 个交易日，共 ${model.totalDays} 个交易日。悬停或使用左右方向键查看交易日数据。`);
-    const guide = svg.querySelector(".equity-guide");
+    const guideX = $("equityGuideX");
+    const guideY = $("equityGuideY");
+    const cursorPrice = $("equityCursorPrice");
+    const cursorLabel = $("equityCursorLabel");
+    const guides = [guideX, guideY];
     const targets = [...svg.querySelectorAll(".chart-target")];
     let dragState = null;
 
-    const activatePoint = (index, { focus = false } = {}) => {
+    const activatePoint = (index, { focus = false, cursorY = points[index]?.[1], showGuides = true } = {}) => {
       if (index < 0 || index >= values.length) return;
       const point = values[index];
       const [pointX] = points[index];
       targets.forEach((target, targetIndex) => target.classList.toggle("is-active", targetIndex === index));
-      guide.classList.add("is-visible");
-      guide.setAttribute("x1", pointX);
-      guide.setAttribute("x2", pointX);
-      $("equityTooltipId").textContent = point.date;
+      guides.forEach((guide) => guide.classList.toggle("is-visible", showGuides));
+      guideX.setAttribute("x1", pointX);
+      guideX.setAttribute("x2", pointX);
+      const boundedCursorY = Math.max(pad.t, Math.min(H - pad.b, cursorY));
+      guideY.setAttribute("y1", boundedCursorY);
+      guideY.setAttribute("y2", boundedCursorY);
+      const domainTop = ticks[0];
+      const domainBottom = ticks.at(-1);
+      const cursorValue = domainTop - (boundedCursorY - pad.t) / (H - pad.t - pad.b) * (domainTop - domainBottom);
+      cursorPrice.classList.toggle("is-visible", showGuides);
+      cursorPrice.setAttribute("transform", `translate(0 ${boundedCursorY})`);
+      cursorLabel.textContent = formatEquityAxisValue(cursorValue);
+      $("equityTooltipId").textContent = point.dateKey || point.date;
       $("equityTooltipSummary").textContent = point.summary;
       for (const [id, value] of [["equityTooltipOpenValue", point.open], ["equityTooltipHigh", point.high], ["equityTooltipLow", point.low], ["equityTooltipClose", point.close], ["equityTooltipPnl", point.dayPnl]]) {
-        $(id).textContent = `¥${money(value)}`;
-        $(id).className = signedClass(value);
+        $(id).textContent = `${id === "equityTooltipPnl" && value > 0 ? "+" : ""}¥${money(value)}`;
+        $(id).className = id === "equityTooltipPnl" ? signedClass(value) : "";
       }
       tooltip.hidden = false;
       if (focus) targets[index].focus();
@@ -498,12 +525,19 @@ import { safeReturnHash, tokenNeedsRefresh } from "./session.js?v=20260804-1";
       captureTarget.setPointerCapture?.(event.pointerId);
     };
     viewport.onpointermove = (event) => {
-      if (!dragState || dragState.pointerId !== event.pointerId) return;
-      const deltaX = event.clientX - dragState.startX;
-      if (Math.abs(deltaX) < 6) return;
-      dragState.moved = true;
-      viewport.classList.add("is-dragging");
-      if (equityChartRange === "all") viewport.scrollLeft = dragState.startScrollLeft - deltaX;
+      if (dragState && dragState.pointerId === event.pointerId) {
+        const deltaX = event.clientX - dragState.startX;
+        if (Math.abs(deltaX) < 6) return;
+        dragState.moved = true;
+        viewport.classList.add("is-dragging");
+        if (equityChartRange === "all") viewport.scrollLeft = dragState.startScrollLeft - deltaX;
+        return;
+      }
+      const target = event.target.closest?.(".chart-target");
+      if (!target) return;
+      const bounds = svg.getBoundingClientRect();
+      const cursorY = (event.clientY - bounds.top) / Math.max(1, bounds.height) * H;
+      activatePoint(Number(target.dataset.index), { cursorY });
     };
     const finishDrag = (event, cancelled = false) => {
       if (!dragState || dragState.pointerId !== event.pointerId) return;
@@ -518,15 +552,36 @@ import { safeReturnHash, tokenNeedsRefresh } from "./session.js?v=20260804-1";
     };
     viewport.onpointerup = (event) => finishDrag(event);
     viewport.onpointercancel = (event) => finishDrag(event, true);
-    shell.onmouseleave = () => { if (!shell.contains(document.activeElement)) activatePoint(values.length - 1); };
-    shell.onfocusout = () => requestAnimationFrame(() => { if (!shell.contains(document.activeElement)) activatePoint(values.length - 1); });
+    viewport.onwheel = (event) => {
+      if (!event.deltaY || Math.abs(event.deltaX) > Math.abs(event.deltaY)) return;
+      event.preventDefault();
+      const bounds = svg.getBoundingClientRect();
+      const anchorRatio = Math.max(0, Math.min(1, (event.clientX - bounds.left) / Math.max(1, bounds.width)));
+      const nextVisibleCount = Math.round(values.length * (event.deltaY < 0 ? .82 : 1.22));
+      const zoom = resolveEquityZoomWindow({
+        totalDays: model.totalDays,
+        visibleStart: model.visibleStart,
+        visibleEnd: model.visibleEnd,
+        nextVisibleCount,
+        anchorRatio,
+        minimumVisibleCount: compact ? 5 : 6,
+      });
+      if (zoom.visibleCount === values.length && zoom.windowEnd === model.visibleEnd) return;
+      equityChartRange = "custom";
+      equityChartVisibleCount = zoom.visibleCount;
+      equityChartWindowEnd = zoom.windowEnd;
+      equityChartScrollToLatest = false;
+      renderChart(trades);
+    };
+    shell.onmouseleave = () => { if (!shell.contains(document.activeElement)) activatePoint(values.length - 1, { showGuides: false }); };
+    shell.onfocusout = () => requestAnimationFrame(() => { if (!shell.contains(document.activeElement)) activatePoint(values.length - 1, { showGuides: false }); });
     earlierButton.onclick = () => shiftWindow(-1);
     laterButton.onclick = () => shiftWindow(1);
-    activatePoint(values.length - 1);
+    activatePoint(values.length - 1, { showGuides: false });
     const visibleText = values.length === model.totalDays
       ? `${model.totalDays} 个交易日`
       : `${model.visibleStart + 1}–${model.visibleEnd} / ${model.totalDays} 个交易日`;
-    $("chartCaption").textContent = `${visibleText} · ${trades.length} 笔完整交易 · 拖动查看历史`;
+    $("chartCaption").textContent = `${visibleText} · ${trades.length} 笔完整交易 · 滚轮缩放 · 拖动平移`;
     if (equityChartRange === "all" && equityChartScrollToLatest) {
       equityChartScrollToLatest = false;
       requestAnimationFrame(() => { viewport.scrollLeft = viewport.scrollWidth; });
