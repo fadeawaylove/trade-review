@@ -1,6 +1,7 @@
 import { githubAccessRole, isAllowedGithubLogin } from "./access.js";
 import { handleAccessHistoryRequest } from "./access-history.js";
 import { handleArticleRequest } from "./articles.js";
+import { permanentlyDeleteTrade, purgeExpiredTrades, trashPurgeAt } from "./trash.js";
 
 const encoder = new TextEncoder();
 const SESSION_TTL_SECONDS = 60 * 60 * 24 * 30;
@@ -210,7 +211,10 @@ async function loadDashboard(env, { includeDeleted = true } = {}) {
   const trades = allTrades.filter((trade) => !deletedById.has(trade.tradeId));
   const deletedTrades = allTrades
     .filter((trade) => deletedById.has(trade.tradeId))
-    .map((trade) => ({ ...trade, deletedAt: deletedById.get(trade.tradeId) }))
+    .map((trade) => {
+      const deletedAt = deletedById.get(trade.tradeId);
+      return { ...trade, deletedAt, purgeAt: trashPurgeAt(deletedAt) };
+    })
     .sort((a, b) => String(b.deletedAt).localeCompare(String(a.deletedAt)));
   return { ...data, meta: { ...(data.meta || {}), cloudUpdatedAt: latest }, trades, deletedTrades: includeDeleted ? deletedTrades : [] };
 }
@@ -392,6 +396,17 @@ export default {
       return json(request, env, { ok: true, tradeId: deleteRecord[1], deletedAt: now });
     }
 
+    const purgeRecord = url.pathname.match(/^\/api\/trades\/(TR-\d+)\/purge$/);
+    if (purgeRecord && request.method === "DELETE") {
+      try {
+        const result = await withD1Retry(() => permanentlyDeleteTrade(env.DB, purgeRecord[1], new Date()));
+        if (!result) return json(request, env, { error: "回收站中没有这笔交易" }, 404);
+        return json(request, env, { ok: true, ...result });
+      } catch (error) {
+        return json(request, env, { error: error.message || "彻底删除失败" }, 409);
+      }
+    }
+
     const restoreRecord = url.pathname.match(/^\/api\/trades\/(TR-\d+)\/restore$/);
     if (restoreRecord && request.method === "POST") {
       const dashboard = await loadDashboard(env);
@@ -430,5 +445,9 @@ export default {
       return json(request, env, { ok: true, tradeId: match[1], updatedAt: now });
     }
     return json(request, env, { error: "接口不存在" }, 404);
+  },
+  scheduled(controller, env, ctx) {
+    const scheduledAt = new Date(Number.isFinite(controller?.scheduledTime) ? controller.scheduledTime : Date.now());
+    ctx.waitUntil(withD1Retry(() => purgeExpiredTrades(env.DB, scheduledAt)));
   },
 };

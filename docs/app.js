@@ -535,23 +535,6 @@ import { safeReturnHash, tokenNeedsRefresh } from "./session.js?v=20260804-1";
     }
   }
 
-  function aggregate(trades, key) {
-    const map = new Map();
-    trades.forEach((trade) => map.set(trade[key] || "待补充", (map.get(trade[key] || "待补充") || 0) + trade.netPnl));
-    return [...map.entries()].sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]));
-  }
-
-  function renderBars(id, rows) {
-    const host = $(id); host.innerHTML = "";
-    if (!rows.length) { host.innerHTML = `<div class="empty">暂无数据</div>`; return; }
-    const max = Math.max(1, ...rows.map(([, value]) => Math.abs(value)));
-    rows.forEach(([label, value]) => {
-      const row = document.createElement("div"); row.className = "bar-row";
-      row.innerHTML = `<div class="bar-label">${esc(label)}</div><div class="bar-track"><div class="bar-fill ${value < 0 ? "loss" : ""}" style="width:${Math.abs(value) / max * 100}%"></div></div><div class="bar-value ${signedClass(value)}">¥${money(value)}</div>`;
-      host.append(row);
-    });
-  }
-
   function renderBrief(trades, summary) {
     if (!trades.length) return;
     const best = [...trades].sort((a, b) => b.netPnl - a.netPnl)[0];
@@ -587,7 +570,7 @@ import { safeReturnHash, tokenNeedsRefresh } from "./session.js?v=20260804-1";
 
   function render() {
     const trades = selectedTrades(), summary = stats(trades);
-    renderKpis(trades, summary); renderChart(trades); renderBrief(trades, summary); renderBars("instrumentBars", aggregate(trades, "instrument")); renderBars("sessionBars", aggregate(trades, "session")); renderRows(trades);
+    renderKpis(trades, summary); renderChart(trades); renderBrief(trades, summary); renderRows(trades);
     const pending = (dashboard?.trades || []).filter((trade) => trade.dateStatus !== "已确认").length;
     $("notice").classList.toggle("ok", pending === 0);
     $("noticeText").textContent = pending ? `有 ${pending} 笔交易日期待确认；盈亏已计入总览，日期维度暂不作为结论。` : "所有交易日期已确认，日期维度统计可用。";
@@ -601,10 +584,10 @@ import { safeReturnHash, tokenNeedsRefresh } from "./session.js?v=20260804-1";
     activeTradeId = null;
     const deletedTrades = dashboard?.deletedTrades || [];
     const cards = deletedTrades.map((trade) => `<article class="trash-card">
-      <div class="trash-card-main"><span>${esc(trade.tradeId)} · ${esc(trade.dateLabel)}</span><h3>${esc(trade.instrument)} ${esc(trade.contract)} · ${esc(trade.direction)}单</h3><p>${esc(trade.entryTime)} → ${esc(trade.exitTime)} · ${esc(trade.result)} · 删除于 ${esc(formatCloudTime(trade.deletedAt))}</p></div>
-      <div class="trash-card-side"><b class="${signedClass(trade.netPnl)}">¥${money(trade.netPnl)}</b><button class="ghost-button restore-button" type="button" data-restore-trade="${esc(trade.tradeId)}">恢复交易</button></div>
+      <div class="trash-card-main"><span>${esc(trade.tradeId)} · ${esc(trade.dateLabel)}</span><h3>${esc(trade.instrument)} ${esc(trade.contract)} · ${esc(trade.direction)}单</h3><p>${esc(trade.entryTime)} → ${esc(trade.exitTime)} · ${esc(trade.result)} · 删除于 ${esc(formatCloudTime(trade.deletedAt))} · 自动清理于 ${esc(formatCloudTime(trade.purgeAt))}</p></div>
+      <div class="trash-card-side"><b class="${signedClass(trade.netPnl)}">¥${money(trade.netPnl)}</b><div class="trash-actions"><button class="ghost-button restore-button" type="button" data-restore-trade="${esc(trade.tradeId)}">恢复交易</button><button class="ghost-button purge-trade-button" type="button" data-purge-trade="${esc(trade.tradeId)}">彻底删除</button></div></div>
     </article>`).join("");
-    $("drawerContent").innerHTML = `<div class="drawer-sub">RECYCLE BIN · ${deletedTrades.length} 笔</div><h2>交易回收站</h2><p class="trash-intro">这里的交易不参与胜率、盈亏与图表统计。恢复后，原有复盘文字和截图会一起回来。</p><div class="trash-list">${cards || `<div class="trash-empty"><b>回收站是空的</b><span>从交易详情中移除的记录会出现在这里。</span></div>`}</div>`;
+    $("drawerContent").innerHTML = `<div class="drawer-sub">RECYCLE BIN · ${deletedTrades.length} 笔</div><h2>交易回收站</h2><p class="trash-intro">这里的交易不参与胜率、盈亏与图表统计。30 天内可以完整恢复；超过 30 天自动彻底删除，也可以现在手动删除。</p><div class="trash-list">${cards || `<div class="trash-empty"><b>回收站是空的</b><span>从交易详情中移除的记录会在这里保留 30 天。</span></div>`}</div>`;
     document.body.classList.add("drawer-open");
     document.querySelectorAll("[data-restore-trade]").forEach((button) => {
       button.addEventListener("click", async () => {
@@ -616,6 +599,32 @@ import { safeReturnHash, tokenNeedsRefresh } from "./session.js?v=20260804-1";
           openTrashDrawer();
           notify(`${button.dataset.restoreTrade} 已恢复，统计已更新`);
         } catch (error) { button.disabled = false; button.textContent = "恢复交易"; notify(error.message, true); }
+      });
+    });
+    document.querySelectorAll("[data-purge-trade]").forEach((button) => {
+      let armed = false;
+      button.addEventListener("click", async () => {
+        if (!armed) {
+          armed = true;
+          button.textContent = "再次点击，彻底删除";
+          button.classList.add("armed");
+          return;
+        }
+        const tradeId = button.dataset.purgeTrade;
+        button.disabled = true;
+        button.textContent = "正在彻底删除…";
+        try {
+          await apiFetch(`/api/trades/${encodeURIComponent(tradeId)}/purge`, { method: "DELETE" });
+          await refreshDashboard();
+          openTrashDrawer();
+          notify(`${tradeId} 已彻底删除，复盘和图片无法恢复`);
+        } catch (error) {
+          button.disabled = false;
+          button.textContent = "彻底删除";
+          button.classList.remove("armed");
+          armed = false;
+          notify(error.message, true);
+        }
       });
     });
   }
