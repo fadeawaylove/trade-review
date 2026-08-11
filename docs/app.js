@@ -591,6 +591,7 @@ import { safeReturnHash, tokenNeedsRefresh } from "./session.js?v=20260804-1";
         startY: event.clientY,
         startDomain: { min: model.domainMin, max: model.domainMax },
         previewDomain: { min: model.domainMin, max: model.domainMax },
+        moved: false,
       };
       priceScaleHit.setPointerCapture?.(event.pointerId);
       viewport.classList.add("is-scaling");
@@ -615,6 +616,7 @@ import { safeReturnHash, tokenNeedsRefresh } from "./session.js?v=20260804-1";
     viewport.onpointermove = (event) => {
       if (priceScaleState && priceScaleState.pointerId === event.pointerId) {
         const deltaPixels = event.clientY - priceScaleState.startY;
+        priceScaleState.moved = priceScaleState.moved || Math.abs(deltaPixels) > 2;
         priceScaleState.previewDomain = scaleEquityPriceDomain({ ...priceScaleState.startDomain, deltaPixels, plotHeight: H - pad.t - pad.b });
         const startSpan = priceScaleState.startDomain.max - priceScaleState.startDomain.min;
         const nextSpan = priceScaleState.previewDomain.max - priceScaleState.previewDomain.min;
@@ -646,6 +648,7 @@ import { safeReturnHash, tokenNeedsRefresh } from "./session.js?v=20260804-1";
         priceScaleState = null;
         viewport.classList.remove("is-scaling");
         priceScaleHit.releasePointerCapture?.(event.pointerId);
+        if (!cancelled && !completedScale.moved) return;
         if (!cancelled) equityChartPriceDomain = completedScale.previewDomain;
         renderChart(trades);
         return;
