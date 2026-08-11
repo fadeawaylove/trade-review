@@ -1,4 +1,4 @@
-import { buildEquityChartModel, formatEquityAxisValue, formatEquityDateLabel, resolveChartRange, resolveEquityPanOffset, resolveEquityPanWindow, resolveEquityPointerRatio, resolveEquityWheelCount, resolveEquityZoomWindow, scaleEquityPriceDomain } from "./equity-chart.js?v=20260811-2";
+import { buildEquityChartModel, formatEquityAxisValue, formatEquityDateLabel, resolveChartRange, resolveEquityPanOffset, resolveEquityPanWindow, resolveEquityWheelCount, resolveEquityZoomWindow, scaleEquityPriceDomain, shouldBlockEquityZoomOut } from "./equity-chart.js?v=20260811-3";
 import { buildEvidenceCarouselState } from "./evidence-carousel.js?v=20260721-1";
 import { clearAttachmentCache, loadAttachmentBlob, removeAttachmentFromCache } from "./attachment-cache.js?v=20260804-1";
 import { paginateLedgerRows } from "./ledger-pagination.js?v=20260729-1";
@@ -449,17 +449,23 @@ import { safeReturnHash, tokenNeedsRefresh } from "./session.js?v=20260804-1";
     viewport.onpointermove = null;
     viewport.onpointerup = null;
     viewport.onpointercancel = null;
+    viewport.ondblclick = null;
     viewport.onwheel = null;
     fitButton.setAttribute("aria-pressed", String(equityChartRange === "fit" && equityChartVisibleCount == null && equityChartPriceDomain == null && equityChartPanOffset === 0));
     allButton.setAttribute("aria-pressed", String(equityChartRange === "all" && equityChartVisibleCount == null && equityChartPanOffset === 0));
-    fitButton.onclick = () => {
+    const resetEquityChartView = () => {
       equityChartRange = "fit";
       equityChartVisibleCount = null;
       equityChartWindowEnd = null;
       equityChartPanOffset = 0;
       equityChartPriceDomain = null;
+      equityChartActiveDateKey = "";
+      equityChartWheelDelta = 0;
+      if (equityChartWheelFrame) cancelAnimationFrame(equityChartWheelFrame);
+      equityChartWheelFrame = 0;
       renderChart(trades);
     };
+    fitButton.onclick = resetEquityChartView;
     allButton.onclick = () => {
       equityChartRange = "all";
       equityChartVisibleCount = null;
@@ -592,8 +598,12 @@ import { safeReturnHash, tokenNeedsRefresh } from "./session.js?v=20260804-1";
     priceScaleHit.ondblclick = (event) => {
       event.preventDefault();
       event.stopPropagation();
-      equityChartPriceDomain = null;
-      renderChart(trades);
+      resetEquityChartView();
+    };
+    viewport.ondblclick = (event) => {
+      if (event.target.closest?.(".equity-price-scale-hit")) return;
+      event.preventDefault();
+      resetEquityChartView();
     };
     viewport.onpointerdown = (event) => {
       if (event.button !== 0 || event.target.closest?.(".equity-price-scale-hit")) return;
@@ -687,15 +697,7 @@ import { safeReturnHash, tokenNeedsRefresh } from "./session.js?v=20260804-1";
         const deltaY = equityChartWheelDelta;
         equityChartWheelDelta = 0;
         equityChartWheelFrame = 0;
-        const bounds = svg.getBoundingClientRect();
-        const anchorRatio = resolveEquityPointerRatio({
-          clientX: event.clientX,
-          boundsLeft: bounds.left,
-          boundsWidth: bounds.width,
-          chartWidth: W,
-          padLeft: pad.l,
-          padRight: pad.r,
-        });
+        if (shouldBlockEquityZoomOut({ deltaY, visibleStart: model.visibleStart, panOffset: equityChartPanOffset })) return;
         const nextVisibleCount = resolveEquityWheelCount({
           currentVisibleCount: values.length,
           totalDays: model.totalDays,
@@ -707,7 +709,7 @@ import { safeReturnHash, tokenNeedsRefresh } from "./session.js?v=20260804-1";
           visibleStart: model.visibleStart,
           visibleEnd: model.visibleEnd,
           nextVisibleCount,
-          anchorRatio,
+          anchorRatio: 1,
           minimumVisibleCount: compact ? 5 : 6,
         });
         if (zoom.visibleCount === values.length && zoom.windowEnd === model.visibleEnd) return;

@@ -42,6 +42,10 @@ export function resolveEquityPanOffset({ currentOffset = 0, deltaPixels = 0, plo
   return Math.max(-limit, Math.min(limit, (Number(currentOffset) || 0) + (Number(deltaPixels) || 0)));
 }
 
+export function shouldBlockEquityZoomOut({ deltaY, visibleStart, panOffset = 0 }) {
+  return Number(deltaY) > 0 && ((Number(visibleStart) || 0) <= 0 || (Number(panOffset) || 0) > 0);
+}
+
 export function scaleEquityPriceDomain({ min, max, deltaPixels, plotHeight }) {
   const domainMin = Number(min) || 0;
   const domainMax = Number(max) || 0;

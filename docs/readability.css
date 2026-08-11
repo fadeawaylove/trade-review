@@ -105,7 +105,8 @@ footer{font-size:12px;line-height:1.7}
 .equity-chart-viewport svg{width:var(--equity-chart-width,100%);min-width:100%;outline:none;touch-action:none}
 .equity-chart-viewport svg:focus-visible{box-shadow:inset 0 0 0 3px rgba(185,129,41,.25)}
 .chart-hit{fill:transparent;pointer-events:all;cursor:crosshair}
-.equity-plot-surface{fill:#fff;stroke:none}
+.equity-plot-surface{fill:#fff;stroke:none;transition:fill .12s ease}
+.equity-chart-viewport.is-dragging .equity-plot-surface{fill:#edf2f6}
 .equity-plot-frame{fill:none;stroke:rgba(33,49,68,.12);stroke-width:1;vector-effect:non-scaling-stroke;pointer-events:none}
 .equity-price-axis{stroke:rgba(33,49,68,.14);stroke-width:1;vector-effect:non-scaling-stroke;pointer-events:none}
 .axis{stroke:rgba(33,49,68,.09);stroke-width:1;stroke-dasharray:2 3;vector-effect:non-scaling-stroke}
