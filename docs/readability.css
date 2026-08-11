@@ -100,6 +100,7 @@ footer{font-size:12px;line-height:1.7}
 .equity-chart-shell{position:relative;margin:0;background:#fff}
 .equity-chart-viewport{overflow:hidden;overscroll-behavior:contain;cursor:crosshair}
 .equity-chart-viewport.is-dragging{cursor:grabbing;user-select:none}
+.equity-chart-viewport.is-dragging .chart-hit{cursor:grabbing}
 .equity-chart-viewport.is-scaling{cursor:ns-resize;user-select:none}
 .equity-chart-viewport svg{width:var(--equity-chart-width,100%);min-width:100%;outline:none;touch-action:none}
 .equity-chart-viewport svg:focus-visible{box-shadow:inset 0 0 0 3px rgba(185,129,41,.25)}

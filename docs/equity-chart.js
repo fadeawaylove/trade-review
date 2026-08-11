@@ -36,6 +36,12 @@ export function resolveEquityPanWindow({ totalDays, visibleStart, visibleEnd, de
   return { dayShift: nextEnd - end, windowEnd: nextEnd };
 }
 
+export function resolveEquityPanOffset({ currentOffset = 0, deltaPixels = 0, plotWidth, maximumFraction = .35 }) {
+  const width = Math.max(1, Number(plotWidth) || 0);
+  const limit = width * Math.max(0, Math.min(.5, Number(maximumFraction) || 0));
+  return Math.max(-limit, Math.min(limit, (Number(currentOffset) || 0) + (Number(deltaPixels) || 0)));
+}
+
 export function scaleEquityPriceDomain({ min, max, deltaPixels, plotHeight }) {
   const domainMin = Number(min) || 0;
   const domainMax = Number(max) || 0;
