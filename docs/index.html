@@ -12,7 +12,7 @@
   <link rel="apple-touch-icon" sizes="180x180" href="./apple-touch-icon.png?v=20260720-1">
   <link rel="manifest" href="./site.webmanifest">
   <link rel="stylesheet" href="./styles.css?v=20260810-1">
-  <link rel="stylesheet" href="./readability.css?v=20260810-4">
+  <link rel="stylesheet" href="./readability.css?v=20260811-1">
   <link rel="stylesheet" href="./vendor/vditor/dist/index.css?v=3.11.2">
   <link rel="stylesheet" href="./articles.css?v=20260810-2">
 </head>
@@ -82,37 +82,31 @@
       <section class="hero-grid">
         <article class="panel chart-panel" id="equityChartPanel">
           <div class="panel-head chart-panel-head">
-            <div><small>REALIZED EQUITY · DAILY OHLC</small><h2>累计净盈亏日 K</h2></div>
-            <div class="chart-head-tools">
-              <span id="chartCaption"></span>
-              <div class="equity-toolbar">
-                <div class="equity-range" role="group" aria-label="日K图显示范围">
-                  <button type="button" data-chart-range="short" aria-pressed="true">近30日</button>
-                  <button type="button" data-chart-range="long" aria-pressed="false">近60日</button>
-                  <button type="button" data-chart-range="all" aria-pressed="false">全部</button>
-                </div>
-                <div class="equity-window-nav" aria-label="切换日K时间窗口">
-                  <button type="button" id="equityEarlier" aria-label="查看更早的交易日">←</button>
-                  <button type="button" id="equityLater" aria-label="查看更新的交易日">→</button>
-                </div>
-                <button class="equity-focus-toggle" type="button" id="equityFocusToggle" aria-pressed="false" aria-label="进入日K图专注视图">专注视图</button>
-              </div>
+            <div class="equity-title-group">
+              <h2>精确终端 · 累计净盈亏日 K 线图</h2>
+              <span id="chartCaption">累计净盈亏（日线，等比）</span>
+            </div>
+            <div class="equity-toolbar" role="group" aria-label="日K图显示操作">
+              <button type="button" id="equityFit" aria-pressed="true">适配</button>
+              <button type="button" id="equityAll" aria-pressed="false">全部</button>
+              <button class="equity-focus-toggle" type="button" id="equityFocusToggle" aria-pressed="false" aria-label="进入日K图专注视图">专注视图</button>
             </div>
           </div>
           <div class="equity-chart-shell" id="equityChartShell">
             <div class="equity-chart-viewport" id="equityChartViewport">
-              <svg id="equityChart" viewBox="0 0 900 280" preserveAspectRatio="none" role="group" aria-label="累计已实现盈亏日K图"></svg>
+              <svg id="equityChart" viewBox="0 0 900 280" preserveAspectRatio="none" role="group" tabindex="0" aria-describedby="chartCaption" aria-label="累计已实现盈亏日K图"></svg>
             </div>
             <div class="equity-tooltip" id="equityTooltip" role="group" aria-live="polite" aria-label="交易日K线详情" hidden>
               <div class="equity-tooltip-head"><b id="equityTooltipId"></b><span id="equityTooltipSummary"></span></div>
               <dl class="equity-tooltip-values">
-                <div><dt>开盘</dt><dd id="equityTooltipOpenValue"></dd></div>
-                <div><dt>最高</dt><dd id="equityTooltipHigh"></dd></div>
-                <div><dt>最低</dt><dd id="equityTooltipLow"></dd></div>
-                <div><dt>收盘</dt><dd id="equityTooltipClose"></dd></div>
-                <div><dt>盈亏</dt><dd id="equityTooltipPnl"></dd></div>
+                <div><dt>开</dt><dd id="equityTooltipOpenValue"></dd></div>
+                <div><dt>高</dt><dd id="equityTooltipHigh"></dd></div>
+                <div><dt>低</dt><dd id="equityTooltipLow"></dd></div>
+                <div><dt>收</dt><dd id="equityTooltipClose"></dd></div>
+                <div><dt>涨跌</dt><dd id="equityTooltipPnl"></dd></div>
               </dl>
             </div>
+            <div class="equity-interaction-hints" aria-hidden="true"><span>拖拽平移</span><span>滚轮缩放</span></div>
           </div>
         </article>
         <article class="panel brief-panel">
@@ -304,6 +298,6 @@
   <script src="./config.js"></script>
   <script src="./vendor/vditor/dist/js/icons/ant.js?v=3.11.2"></script>
   <script src="./vendor/vditor/dist/index.min.js?v=3.11.2"></script>
-  <script type="module" src="./app.js?v=20260810-5"></script>
+  <script type="module" src="./app.js?v=20260811-1"></script>
 </body>
 </html>

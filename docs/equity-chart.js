@@ -1,14 +1,49 @@
 const DEFAULT_WIDTH = 900;
 const DEFAULT_HEIGHT = 280;
-const DEFAULT_PAD = Object.freeze({ l: 72, r: 70, t: 24, b: 42 });
+const DEFAULT_PAD = Object.freeze({ l: 18, r: 94, t: 54, b: 42 });
 const MIN_SPARSE_SLOTS = 7;
-const MIN_ALL_SLOT_WIDTH = 26;
 const roundMoney = (value) => Math.round((value + Number.EPSILON) * 100) / 100;
 
 export function resolveChartRange(mode, compact = false) {
   if (mode === "all") return Infinity;
-  if (mode === "long") return compact ? 30 : 60;
   return compact ? 15 : 30;
+}
+
+export function resolveEquityWheelCount({ currentVisibleCount, totalDays, deltaY, minimumVisibleCount = 6 }) {
+  const total = Math.max(0, Math.floor(Number(totalDays) || 0));
+  if (!total) return 0;
+  const current = Math.max(1, Math.min(total, Math.round(Number(currentVisibleCount) || total)));
+  const minimum = Math.min(total, Math.max(1, Math.floor(Number(minimumVisibleCount) || 1)));
+  const step = Math.max(1, Math.round(current * .08));
+  return Math.max(minimum, Math.min(total, current + (Number(deltaY) < 0 ? -step : step)));
+}
+
+export function resolveEquityPointerRatio({ clientX, boundsLeft, boundsWidth, chartWidth, padLeft, padRight }) {
+  const scale = Math.max(1, Number(boundsWidth) || 0) / Math.max(1, Number(chartWidth) || 0);
+  const plotLeft = Number(boundsLeft) + (Number(padLeft) || 0) * scale;
+  const plotWidth = Math.max(1, (Number(chartWidth) - (Number(padLeft) || 0) - (Number(padRight) || 0)) * scale);
+  return Math.max(0, Math.min(1, (Number(clientX) - plotLeft) / plotWidth));
+}
+
+export function resolveEquityPanWindow({ totalDays, visibleStart, visibleEnd, deltaPixels, plotWidth }) {
+  const total = Math.max(0, Math.floor(Number(totalDays) || 0));
+  const start = Math.max(0, Math.min(total, Math.floor(Number(visibleStart) || 0)));
+  const end = Math.max(start, Math.min(total, Math.floor(Number(visibleEnd) || total)));
+  const count = Math.max(1, end - start);
+  const slotWidth = Math.max(1, Number(plotWidth) || 0) / count;
+  const requestedShift = -Math.round((Number(deltaPixels) || 0) / slotWidth);
+  const nextEnd = Math.max(count, Math.min(total, end + requestedShift));
+  return { dayShift: nextEnd - end, windowEnd: nextEnd };
+}
+
+export function scaleEquityPriceDomain({ min, max, deltaPixels, plotHeight }) {
+  const domainMin = Number(min) || 0;
+  const domainMax = Number(max) || 0;
+  const center = (domainMin + domainMax) / 2;
+  const span = Math.max(.01, domainMax - domainMin);
+  const factor = Math.max(.1, Math.min(10, 1 + (Number(deltaPixels) || 0) / Math.max(1, Number(plotHeight) || 0)));
+  const nextSpan = span * factor;
+  return { min: roundMoney(center - nextSpan / 2), max: roundMoney(center + nextSpan / 2) };
 }
 
 export function resolveEquityZoomWindow({
@@ -34,8 +69,7 @@ export function resolveEquityZoomWindow({
 }
 
 export function chartWidthForRange(totalDays, mode, baseWidth = DEFAULT_WIDTH) {
-  if (mode !== "all") return baseWidth;
-  return Math.max(baseWidth, DEFAULT_PAD.l + DEFAULT_PAD.r + Math.max(MIN_SPARSE_SLOTS, totalDays) * MIN_ALL_SLOT_WIDTH);
+  return baseWidth;
 }
 
 function normalizedDateParts(value) {
@@ -60,10 +94,7 @@ export function formatEquityAxisValue(value) {
   const numeric = Number(value) || 0;
   const sign = numeric < 0 ? "-" : "";
   const absolute = Math.abs(numeric);
-  const compact = (amount, suffix) => `${sign}¥${amount.toFixed(2).replace(/\.00$/, "").replace(/(\.\d)0$/, "$1")}${suffix}`;
-  if (absolute >= 10_000) return compact(absolute / 10_000, "万");
-  if (absolute >= 1_000) return compact(absolute / 1_000, "k");
-  return `${sign}¥${Math.round(absolute)}`;
+  return `${sign}¥${absolute.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
 function monthKey(value) {
@@ -185,10 +216,17 @@ export function buildEquityChartModel(trades, options = {}) {
   const observedMin = Math.min(0, ...values.flatMap((day) => [day.open, day.high, day.low, day.close]));
   const observedMax = Math.max(0, ...values.flatMap((day) => [day.open, day.high, day.low, day.close]));
   const observedSpan = Math.max(1, observedMax - observedMin);
-  const tickStep = niceTickStep(observedSpan * 1.16);
-  const domainMin = Math.floor((observedMin - observedSpan * .08) / tickStep) * tickStep;
-  const domainMax = Math.ceil((observedMax + observedSpan * .08) / tickStep) * tickStep;
+  const autoTickStep = niceTickStep(observedSpan, 8);
+  const autoDomainMin = Math.floor(observedMin / autoTickStep) * autoTickStep - autoTickStep;
+  const autoDomainMax = Math.ceil(observedMax / autoTickStep) * autoTickStep;
+  const requestedDomain = options.domain;
+  const usesRequestedDomain = Number.isFinite(requestedDomain?.min)
+    && Number.isFinite(requestedDomain?.max)
+    && requestedDomain.max > requestedDomain.min;
+  const domainMin = usesRequestedDomain ? requestedDomain.min : autoDomainMin;
+  const domainMax = usesRequestedDomain ? requestedDomain.max : autoDomainMax;
   const span = domainMax - domainMin;
+  const tickStep = niceTickStep(span, 10);
   const plotLeft = pad.l;
   const plotRight = width - pad.r;
   const layoutSlotCount = Math.max(MIN_SPARSE_SLOTS, values.length);
@@ -197,7 +235,7 @@ export function buildEquityChartModel(trades, options = {}) {
   const x = (index) => plotLeft + (leadingSlots + index + .5) * slotWidth;
   const y = (value) => pad.t + (domainMax - value) / span * (height - pad.t - pad.b);
   const points = values.map((day, index) => [x(index), y(day.close)]);
-  const bodyWidth = Math.min(24, Math.max(6, slotWidth * .46));
+  const bodyWidth = Math.min(38, Math.max(7, slotWidth * .55));
   const candles = values.map((day, index) => {
     const openY = y(day.open);
     const closeY = y(day.close);
@@ -213,14 +251,16 @@ export function buildEquityChartModel(trades, options = {}) {
     };
   });
   const base = y(0);
-  const tickIntervals = Math.max(1, Math.round(span / tickStep));
-  const ticks = Array.from({ length: tickIntervals + 1 }, (_, index) => domainMax - tickStep * index);
+  const tickTop = Math.floor(domainMax / tickStep) * tickStep;
+  const tickBottom = Math.ceil(domainMin / tickStep) * tickStep;
+  const tickIntervals = Math.max(0, Math.floor((tickTop - tickBottom) / tickStep));
+  const ticks = Array.from({ length: tickIntervals + 1 }, (_, index) => roundMoney(tickTop - tickStep * index));
   const tickYs = ticks.map(y);
   const hitBounds = points.map((point) => ({ start: point[0] - slotWidth / 2, end: point[0] + slotWidth / 2 }));
   const labelIndices = buildLabelIndices(values, slotWidth);
 
   return {
-    width, height, pad, values, points, candles, hitBounds, ticks, tickYs, labelIndices, base, slotWidth, layoutSlotCount,
+    width, height, pad, values, points, candles, hitBounds, ticks, tickYs, labelIndices, base, slotWidth, layoutSlotCount, domainMin, domainMax,
     totalDays: allValues.length,
     visibleStart,
     visibleEnd,

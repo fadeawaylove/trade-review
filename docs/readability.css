@@ -83,70 +83,84 @@ footer{font-size:12px;line-height:1.7}
 .trash-card-main>span,.trash-card p,.delete-trade-section p{font-size:13px}.trash-card h3,.delete-trade-section h3{font-size:21px}.trash-card-side b{font-size:21px}.trash-intro,.trash-empty{font-size:14px}
 .workspace-back,.workspace-nav,.workspace-save{font-size:14px}.workspace-identity span,.summary-label,.workspace-result>span,.review-heading span{font-size:12px}.workspace-result>small,.workspace-facts,.workspace-facts small,.review-heading p{font-size:14px}.workspace-evidence .edit-hint{font-size:14px}.workspace-evidence .evidence-meta b{font-size:14px}.workspace-evidence .evidence-meta small,.workspace-evidence .evidence-delete,.workspace-evidence .upload-state{font-size:12px}.workspace-review .edit-field{font-size:14px}
 
-/* Equity chart: professional OHLC surface, compact quote strip, and precise guides. */
+/* Equity chart: precise terminal layout with direct manipulation. */
 .hero-grid{grid-template-columns:minmax(0,1fr)}
-.chart-panel{container-type:inline-size}
-.chart-panel-head{align-items:flex-start}
-.chart-head-tools{display:flex;align-items:flex-end;flex-direction:column;gap:8px}
-.chart-head-tools>span{color:var(--muted);font-size:12px}
+.chart-panel{container-type:inline-size;border-color:rgba(33,49,68,.12);background:#fff;box-shadow:0 10px 34px rgba(39,49,58,.07)}
+.chart-panel-head{min-height:68px;align-items:center;padding:12px 20px;border-bottom:1px solid rgba(33,49,68,.1)}
+.equity-title-group{display:grid;min-width:0;gap:5px}
+.equity-title-group h2{margin:0;color:#24384e;font:700 20px/1.2 "Microsoft YaHei UI","PingFang SC",sans-serif;letter-spacing:.015em}
+.equity-title-group>span{overflow:hidden;color:#71808d;font-size:12px;text-overflow:ellipsis;white-space:nowrap}
 .equity-toolbar{display:flex;align-items:center;justify-content:flex-end;gap:8px}
-.equity-range,.equity-window-nav{display:inline-flex;padding:3px;border:1px solid rgba(33,49,68,.13);border-radius:9px;background:rgba(255,255,255,.58)}
-.equity-range button,.equity-window-nav button{min-height:30px;padding:5px 10px;border:0;border-radius:6px;color:#687681;background:transparent;font:700 11px Bahnschrift,sans-serif;cursor:pointer}
-.equity-range button[aria-pressed="true"]{color:#fff;background:#2b3c50;box-shadow:0 4px 10px rgba(33,49,68,.16)}
-.equity-range button:hover:not([aria-pressed="true"]),.equity-window-nav button:hover:not(:disabled){color:var(--profit);background:rgba(201,67,56,.07)}
-.equity-range button:focus-visible,.equity-window-nav button:focus-visible{outline:2px solid rgba(185,129,41,.5);outline-offset:2px}
-.equity-window-nav button{min-width:31px;padding-inline:7px;font-size:14px}
-.equity-window-nav button:disabled{opacity:.3;cursor:not-allowed}
-.equity-focus-toggle{min-height:38px;padding:7px 12px;border:1px solid rgba(43,60,80,.18);border-radius:9px;color:#425364;background:rgba(255,255,255,.68);font:700 11px Bahnschrift,sans-serif;cursor:pointer;transition:background .16s,color .16s,transform .16s}
+.equity-toolbar button{min-height:40px;padding:8px 14px;border:1px solid rgba(43,60,80,.14);border-radius:8px;color:#425364;background:#fff;font:700 13px "Microsoft YaHei UI","PingFang SC",sans-serif;cursor:pointer;transition:background .16s,color .16s,border-color .16s,transform .16s}
+.equity-toolbar button:hover{border-color:rgba(201,67,56,.28);color:var(--profit);background:#fffdf8;transform:translateY(-1px)}
+.equity-toolbar button:focus-visible{outline:3px solid rgba(185,129,41,.28);outline-offset:2px}
+.equity-toolbar button[aria-pressed="true"]{border-color:rgba(43,60,80,.24);color:#2b3c50;background:#f5f7f8}
+.equity-focus-toggle{min-width:88px}
 .equity-focus-toggle:hover{color:var(--profit);background:#fff;transform:translateY(-1px)}
-.equity-focus-toggle:focus-visible{outline:2px solid rgba(185,129,41,.5);outline-offset:2px}
-.equity-focus-toggle[aria-pressed="true"]{color:#fff;background:#2b3c50}
-.equity-chart-shell{position:relative;margin-top:5px}
-.equity-chart-viewport{overflow-x:auto;overscroll-behavior-inline:contain;scrollbar-color:rgba(33,49,68,.22) transparent;scrollbar-width:thin;cursor:crosshair}
+.equity-chart-shell{position:relative;margin:0;background:#fff}
+.equity-chart-viewport{overflow:hidden;overscroll-behavior:contain;cursor:crosshair}
 .equity-chart-viewport.is-dragging{cursor:grabbing;user-select:none}
-.equity-chart-viewport svg{width:var(--equity-chart-width,100%);min-width:100%;touch-action:pan-y}
+.equity-chart-viewport.is-scaling{cursor:ns-resize;user-select:none}
+.equity-chart-viewport svg{width:var(--equity-chart-width,100%);min-width:100%;outline:none;touch-action:none}
+.equity-chart-viewport svg:focus-visible{box-shadow:inset 0 0 0 3px rgba(185,129,41,.25)}
 .chart-hit{fill:transparent;pointer-events:all;cursor:crosshair}
-.equity-plot-surface{fill:url(#equityPlotGradient);stroke:rgba(33,49,68,.08);stroke-width:1;vector-effect:non-scaling-stroke}
-.axis{stroke:rgba(33,49,68,.105);stroke-width:1;vector-effect:non-scaling-stroke}
-.equity-value-label{fill:#667585;font-size:11px;font-weight:600;letter-spacing:-.02em}
-.equity-zero{stroke:rgba(33,49,68,.34);stroke-width:1.2;stroke-dasharray:5 4;vector-effect:non-scaling-stroke}
-.equity-last-line{stroke:rgba(86,122,154,.58);stroke-width:1;stroke-dasharray:3 4;vector-effect:non-scaling-stroke}
-.equity-last-value{fill:#2b3c50;stroke:rgba(255,255,255,.82);stroke-width:1;vector-effect:non-scaling-stroke}
-.equity-last-label{fill:#fff;font:700 9px Bahnschrift,sans-serif;letter-spacing:-.02em}
+.equity-plot-surface{fill:#fff;stroke:none}
+.equity-plot-frame{fill:none;stroke:rgba(33,49,68,.12);stroke-width:1;vector-effect:non-scaling-stroke;pointer-events:none}
+.equity-price-axis{stroke:rgba(33,49,68,.14);stroke-width:1;vector-effect:non-scaling-stroke;pointer-events:none}
+.axis{stroke:rgba(33,49,68,.09);stroke-width:1;stroke-dasharray:2 3;vector-effect:non-scaling-stroke}
+.equity-value-label{fill:#536579;font-size:12px;font-weight:650;letter-spacing:-.02em}
+.equity-zero{stroke:rgba(33,49,68,.42);stroke-width:1.15;stroke-dasharray:5 4;vector-effect:non-scaling-stroke}
+.equity-last-line{stroke:rgba(201,67,56,.56);stroke-width:1;stroke-dasharray:3 3;vector-effect:non-scaling-stroke}
+.equity-last-value{fill:var(--profit);stroke:#fff;stroke-width:1;vector-effect:non-scaling-stroke}
+.equity-last-label{fill:#fff;font:700 11px Bahnschrift,"Microsoft YaHei UI",sans-serif;letter-spacing:-.02em}
 .equity-guide{stroke:rgba(43,60,80,.48);stroke-width:1;stroke-dasharray:4 4;vector-effect:non-scaling-stroke;pointer-events:none;opacity:0;transition:opacity 120ms ease}
 .equity-guide-horizontal{stroke:rgba(86,122,154,.42);stroke-dasharray:2 4}
 .equity-guide.is-visible{opacity:1}
 .equity-cursor-price{opacity:0;pointer-events:none;transition:opacity 80ms ease}
 .equity-cursor-price.is-visible{opacity:1}
-.equity-cursor-value{fill:#5d6f82;stroke:rgba(255,255,255,.88);stroke-width:1;vector-effect:non-scaling-stroke}
-.equity-cursor-label{fill:#fff;font:700 9px Bahnschrift,sans-serif;letter-spacing:-.02em}
+.equity-cursor-value{fill:#23364c;stroke:#fff;stroke-width:1;vector-effect:non-scaling-stroke}
+.equity-cursor-label{fill:#fff;font:700 11px Bahnschrift,"Microsoft YaHei UI",sans-serif;letter-spacing:-.02em}
+.equity-cursor-date{opacity:0;pointer-events:none;transition:opacity 80ms ease}
+.equity-cursor-date.is-visible{opacity:1}
+.equity-cursor-date rect{fill:#23364c}
+.equity-cursor-date text{fill:#fff;font:700 11px Bahnschrift,"Microsoft YaHei UI",sans-serif}
 .chart-target{outline:none}
-.candle-wick{stroke-width:1.45;vector-effect:non-scaling-stroke;pointer-events:none;transition:stroke-width .14s ease,opacity .14s ease}
-.candle-body{stroke-width:1.25;vector-effect:non-scaling-stroke;pointer-events:none;transition:stroke-width .14s ease,filter .14s ease,opacity .14s ease}
-.candle-profit{fill:rgba(201,67,56,.88);stroke:#be352c}
-.candle-loss{fill:rgba(22,139,99,.88);stroke:#0d7d56}
+.candle-wick{stroke-width:1.35;vector-effect:non-scaling-stroke;pointer-events:none;transition:stroke-width .12s ease,opacity .12s ease}
+.candle-body{stroke-width:1.1;vector-effect:non-scaling-stroke;pointer-events:none;transition:stroke-width .12s ease,filter .12s ease,opacity .12s ease}
+.candle-profit{fill:rgba(201,67,56,.92);stroke:#c13830}
+.candle-loss{fill:rgba(22,139,99,.92);stroke:#117d5a}
 .candle-flat{fill:rgba(86,122,154,.84);stroke:#466b8c}
 .chart-target.is-active .candle-wick,.chart-target:focus-visible .candle-wick{stroke-width:2.5;opacity:1}
-.chart-target.is-active .candle-body,.chart-target:focus-visible .candle-body{stroke:#fff;stroke-width:2.2;filter:drop-shadow(0 5px 7px rgba(33,49,68,.22));opacity:1}
-.equity-date-label{fill:#657483;font-size:10.5px;font-weight:700;letter-spacing:.035em}
-.equity-tooltip{position:absolute;top:12px;z-index:2;display:flex;left:clamp(78px,8%,112px);right:28px;min-height:54px;align-items:center;gap:16px;padding:9px 13px;overflow:hidden;border:1px solid rgba(74,107,139,.2);border-radius:12px;color:#142d4b;background:rgba(252,253,253,.94);box-shadow:0 10px 28px rgba(27,49,70,.09);backdrop-filter:blur(14px)}
+.chart-target.is-active .candle-body,.chart-target:focus-visible .candle-body{stroke:#fff;stroke-width:2;filter:drop-shadow(0 4px 6px rgba(33,49,68,.18));opacity:1}
+.equity-date-label{fill:#536579;font-size:12px;font-weight:700;letter-spacing:.025em}
+.equity-date-label.is-cursor-date{opacity:0}
+.equity-price-scale-hit{fill:transparent;pointer-events:all;cursor:ns-resize}
+.equity-tooltip{position:absolute;top:11px;left:22px;right:auto;z-index:2;display:flex;min-height:36px;max-width:calc(100% - 138px);align-items:center;gap:14px;padding:7px 10px;overflow:hidden;border:0;border-radius:6px;color:#142d4b;background:rgba(255,255,255,.9);box-shadow:none;backdrop-filter:blur(8px)}
 .equity-tooltip[hidden]{display:none}
-.equity-tooltip-head{display:flex;min-width:130px;align-items:flex-start;flex:0 0 auto;flex-direction:column;gap:2px;padding-right:15px;border-right:1px solid rgba(74,107,139,.15)}
-.equity-tooltip-head b{font:700 13px Bahnschrift,sans-serif;white-space:nowrap}.equity-tooltip-head>span{max-width:145px;overflow:hidden;color:#667b8e;font-size:10px;text-overflow:ellipsis;white-space:nowrap}
-.equity-tooltip-values{display:grid;min-width:0;flex:1;grid-template-columns:repeat(5,minmax(72px,1fr));margin:0}.equity-tooltip-values>div{display:grid;min-width:0;gap:2px;padding:0 10px;border-left:1px solid rgba(74,107,139,.11)}.equity-tooltip-values>div:first-child{border-left:0}.equity-tooltip-values dt,.equity-tooltip-values dd{min-width:0;margin:0;white-space:nowrap}.equity-tooltip-values dt{color:#758493;font-size:9px;letter-spacing:.08em}.equity-tooltip-values dd{overflow:hidden;color:#263b50;font:700 11px Bahnschrift,sans-serif;text-overflow:ellipsis}.equity-tooltip-values dd.positive{color:#c94338!important}.equity-tooltip-values dd.negative{color:#168b63!important}
+.equity-tooltip-head{display:flex;min-width:0;align-items:center;flex:0 0 auto;gap:8px;padding-right:2px}
+.equity-tooltip-head b{font:700 13px Bahnschrift,sans-serif;white-space:nowrap}.equity-tooltip-head>span{overflow:hidden;color:#667b8e;font-size:11px;text-overflow:ellipsis;white-space:nowrap}
+.equity-tooltip-values{display:flex;min-width:0;align-items:center;gap:13px;margin:0}.equity-tooltip-values>div{display:flex;min-width:0;align-items:baseline;gap:5px}.equity-tooltip-values dt,.equity-tooltip-values dd{min-width:0;margin:0;white-space:nowrap}.equity-tooltip-values dt{color:#758493;font-size:11px}.equity-tooltip-values dd{overflow:hidden;color:#263b50;font:700 12px Bahnschrift,sans-serif;text-overflow:ellipsis}.equity-tooltip-values dd.positive{color:#c94338!important}.equity-tooltip-values dd.negative{color:#168b63!important}
+#equityTooltipHigh{color:#c94338}.equity-tooltip-values #equityTooltipLow{color:#168b63}
+.equity-interaction-hints{position:absolute;right:102px;bottom:-18px;z-index:2;display:flex;gap:24px;color:#71808d;font:600 11px/1.2 "Microsoft YaHei UI","PingFang SC",sans-serif;pointer-events:none}
 
 body.equity-chart-focus{overflow:hidden}
-body.equity-chart-focus .chart-panel{position:fixed;inset:18px;z-index:60;display:flex;overflow:hidden;flex-direction:column;border-color:rgba(43,60,80,.2);background:#fbfaf6;box-shadow:0 32px 100px rgba(15,27,39,.28)}
-body.equity-chart-focus .chart-panel-head{flex:0 0 auto;padding:22px 25px 0}
-body.equity-chart-focus .equity-chart-shell{min-height:0;flex:1}
+body.equity-chart-focus .chart-panel{position:fixed;inset:0;z-index:60;display:flex;overflow:hidden;flex-direction:column;border:0;border-radius:0;background:#fff;box-shadow:none}
+body.equity-chart-focus .chart-panel-head{height:90px;min-height:90px;box-sizing:border-box;flex:0 0 auto;padding:0 22px}
+body.equity-chart-focus .equity-title-group h2{font-size:22px}
+body.equity-chart-focus .equity-title-group>span{font-size:13px}
+body.equity-chart-focus .equity-toolbar button{min-height:42px;padding:9px 16px;font-size:14px}
+body.equity-chart-focus .equity-tooltip-head b{font-size:15px}
+body.equity-chart-focus .equity-tooltip-head>span{font-size:12px}
+body.equity-chart-focus .equity-tooltip-values dt{font-size:12px}
+body.equity-chart-focus .equity-tooltip-values dd{font-size:13px}
+body.equity-chart-focus .equity-chart-shell{min-height:0;flex:1;margin:0 22px 22px}
 body.equity-chart-focus .equity-chart-viewport{height:100%}
 
 @container (max-width:720px){
-  .equity-tooltip{top:8px;right:12px;display:block;left:58px;min-height:0;padding:7px 9px;border-radius:9px}
-  .equity-tooltip-head{min-width:0;align-items:center;flex-direction:row;justify-content:space-between;padding:0 0 5px;border-right:0;border-bottom:1px solid rgba(74,107,139,.14)}
-  .equity-tooltip-values{grid-template-columns:repeat(5,minmax(0,1fr));padding-top:5px}
-  .equity-tooltip-values>div{padding:0 5px}
-  .equity-tooltip-values dt{font-size:8px}.equity-tooltip-values dd{font-size:9px}
+  .equity-tooltip{top:8px;left:12px;right:84px;display:grid;max-width:none;gap:4px;padding:6px 8px}
+  .equity-tooltip-head{justify-content:flex-start}
+  .equity-tooltip-values{gap:8px;overflow:hidden}
+  .equity-tooltip-values dt{font-size:9px}.equity-tooltip-values dd{font-size:10px}
 }
 
 @media(max-width:1060px){
@@ -161,14 +175,16 @@ body.equity-chart-focus .equity-chart-viewport{height:100%}
   .notice{font-size:13px}
   .kpi-grid article{min-height:132px;padding:19px}
   .kpi-grid span,.kpi-grid small{font-size:12px}
-  .chart-panel-head{display:block}
-  .chart-head-tools{align-items:flex-start;margin-top:13px}
-  .equity-toolbar{width:100%;justify-content:space-between}
-  .equity-range button{padding-inline:8px}
-  .equity-focus-toggle{min-height:36px;padding-inline:9px}
+  .chart-panel-head{display:flex;min-height:0;align-items:flex-start;flex-direction:column;gap:10px;padding:11px 12px}
+  .equity-title-group h2{font-size:16px}
+  .equity-title-group>span{font-size:10px}
+  .equity-toolbar{width:100%;justify-content:flex-end}
+  .equity-toolbar button{min-height:38px;padding:7px 10px;font-size:12px}
+  .equity-focus-toggle{min-width:78px}
   .chart-panel svg{height:var(--equity-chart-height,340px)}
-  body.equity-chart-focus .chart-panel{inset:7px}
-  body.equity-chart-focus .chart-panel-head{padding:14px 14px 0}
+  body.equity-chart-focus .chart-panel{inset:0}
+  body.equity-chart-focus .chart-panel-head{height:116px;min-height:116px;padding:10px 12px}
+  body.equity-chart-focus .equity-chart-shell{margin:0 7px 20px}
   .bar-row{grid-template-columns:88px minmax(0,1fr) 90px;font-size:13px}
   table{font-size:13px}
   th,td{padding:13px}
@@ -229,11 +245,10 @@ body.equity-chart-focus .equity-chart-viewport{height:100%}
   .image-lightbox-stage{inset:58px 10px 118px}
   .image-lightbox-controls{bottom:43px;max-width:calc(100vw - 20px);overflow-x:auto}
   .image-lightbox-controls button{min-width:58px;padding:8px}
-  .equity-tooltip{top:8px;right:12px;display:block;left:58px;min-height:0;padding:7px 9px;border-radius:9px}
-  .equity-tooltip-head{min-width:0;align-items:center;flex-direction:row;justify-content:space-between;padding:0 0 5px;border-right:0;border-bottom:1px solid rgba(74,107,139,.14)}
-  .equity-tooltip-values{grid-template-columns:repeat(5,minmax(52px,1fr));padding-top:5px}
-  .equity-tooltip-values>div{padding:0 5px}
-  .equity-tooltip-values dt{font-size:8px}.equity-tooltip-values dd{font-size:9px}
+  .equity-tooltip{top:8px;left:12px;right:84px;display:grid;max-width:none;min-height:36px;padding:6px 8px;border-radius:6px}
+  .equity-tooltip-head{min-width:0;justify-content:flex-start}
+  .equity-tooltip-values{gap:8px;overflow:hidden}
+  .equity-tooltip-values dt{font-size:9px}.equity-tooltip-values dd{font-size:10px}
 }
 
 @media(prefers-reduced-motion:reduce){.candle-wick,.candle-body{transition:none}}

@@ -1,4 +1,4 @@
-import { buildEquityChartModel, chartWidthForRange, formatEquityAxisValue, formatEquityDateLabel, resolveChartRange, resolveEquityZoomWindow } from "./equity-chart.js?v=20260810-3";
+import { buildEquityChartModel, formatEquityAxisValue, formatEquityDateLabel, resolveChartRange, resolveEquityPanWindow, resolveEquityPointerRatio, resolveEquityWheelCount, resolveEquityZoomWindow, scaleEquityPriceDomain } from "./equity-chart.js?v=20260811-1";
 import { buildEvidenceCarouselState } from "./evidence-carousel.js?v=20260721-1";
 import { clearAttachmentCache, loadAttachmentBlob, removeAttachmentFromCache } from "./attachment-cache.js?v=20260804-1";
 import { paginateLedgerRows } from "./ledger-pagination.js?v=20260729-1";
@@ -29,13 +29,17 @@ import { safeReturnHash, tokenNeedsRefresh } from "./session.js?v=20260804-1";
   let workspaceTrigger = null;
   let evidenceCarouselIndex = 0;
   let evidenceCarouselTradeId = "";
-  let equityChartRange = "short";
+  let equityChartRange = "fit";
   let equityChartVisibleCount = null;
   let equityChartWindowEnd = null;
   let equityChartTradeSignature = "";
-  let equityChartScrollToLatest = false;
+  let equityChartPriceDomain = null;
+  let equityChartActiveDateKey = "";
+  let equityChartWheelDelta = 0;
+  let equityChartWheelFrame = 0;
   let equityChartCompact = matchMedia("(max-width: 760px)").matches;
   let equityChartFocused = false;
+  let equityChartFocusScrollY = 0;
   let equityChartResizeFrame = 0;
   let ledgerPage = 1;
   const articles = initArticles({
@@ -384,8 +388,10 @@ import { safeReturnHash, tokenNeedsRefresh } from "./session.js?v=20260804-1";
   }
 
   function setEquityChartFocus(focused) {
+    if (focused) equityChartFocusScrollY = window.scrollY;
     equityChartFocused = focused;
     document.body.classList.toggle("equity-chart-focus", focused);
+    window.scrollTo({ top: focused ? 0 : equityChartFocusScrollY, behavior: "auto" });
     if (dashboard) renderChart(selectedTrades());
   }
 
@@ -395,63 +401,67 @@ import { safeReturnHash, tokenNeedsRefresh } from "./session.js?v=20260804-1";
     const shell = $("equityChartShell");
     const viewport = $("equityChartViewport");
     const tooltip = $("equityTooltip");
-    const earlierButton = $("equityEarlier");
-    const laterButton = $("equityLater");
+    const fitButton = $("equityFit");
+    const allButton = $("equityAll");
     const focusButton = $("equityFocusToggle");
-    const rangeButtons = [...document.querySelectorAll("[data-chart-range]")];
     const compact = matchMedia("(max-width: 760px)").matches;
     const totalDays = new Set(trades.map((trade) => trade.dateLabel || trade.date || "日期待确认")).size;
-    const tradeSignature = trades.map((trade) => `${trade.tradeId}:${trade.dateLabel || trade.date || ""}`).join("|");
+    const tradeSignature = trades.map((trade) => `${trade.tradeId}:${trade.dateLabel || trade.date || ""}:${trade.netPnl}`).join("|");
     if (tradeSignature !== equityChartTradeSignature) {
       equityChartTradeSignature = tradeSignature;
       equityChartVisibleCount = null;
       equityChartWindowEnd = null;
-      equityChartScrollToLatest = equityChartRange === "all";
+      equityChartPriceDomain = null;
+      equityChartActiveDateKey = "";
     }
     const visibleCount = equityChartVisibleCount ?? resolveChartRange(equityChartRange, compact);
-    const baseChartWidth = compact ? Math.max(320, viewport.clientWidth || panel.clientWidth) : 900;
-    const chartWidth = chartWidthForRange(totalDays, equityChartRange === "all" && equityChartVisibleCount == null ? "all" : "short", baseChartWidth);
+    const baseChartWidth = Math.max(320, viewport.clientWidth || panel.clientWidth);
+    const chartWidth = baseChartWidth;
     const chartHeight = equityChartFocused
-      ? Math.max(compact ? 360 : 460, panel.clientHeight - panel.querySelector(".chart-panel-head").offsetHeight - 5)
+      ? Math.max(compact ? 360 : 460, shell.clientHeight || panel.clientHeight - panel.querySelector(".chart-panel-head").offsetHeight)
       : compact
         ? Math.max(320, Math.min(390, Math.round(window.innerHeight * .46)))
-        : Math.max(440, Math.min(560, Math.round(window.innerHeight * .54)));
+        : Math.max(430, Math.min(570, Math.round(window.innerHeight * .56)));
     svg.style.setProperty("--equity-chart-height", `${chartHeight}px`);
     const model = buildEquityChartModel(trades, {
       width: chartWidth,
       height: chartHeight,
       visibleCount,
       windowEnd: equityChartWindowEnd,
-      pad: compact ? { l: 48, r: 70, t: 82, b: 42 } : { t: 68, b: 46 },
+      domain: equityChartPriceDomain,
+      pad: compact
+        ? { l: 14, r: 76, t: 58, b: 46 }
+        : equityChartFocused
+          ? { l: 0, r: 112, t: 54, b: 54 }
+          : { l: 18, r: 94, t: 54, b: 54 },
     });
     const { width: W, height: H, pad, values, points, candles, hitBounds, ticks, tickYs, labelIndices, base } = model;
     equityChartWindowEnd = model.visibleEnd;
     svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
-    svg.style.setProperty("--equity-chart-width", W > 900 ? `${W}px` : "100%");
-    tooltip.hidden = true;
+    svg.style.setProperty("--equity-chart-width", "100%");
     shell.onmouseleave = null;
     shell.onfocusout = null;
+    svg.onkeydown = null;
     viewport.onpointerdown = null;
     viewport.onpointermove = null;
     viewport.onpointerup = null;
     viewport.onpointercancel = null;
     viewport.onwheel = null;
-    rangeButtons.forEach((button) => {
-      const mode = button.dataset.chartRange;
-      if (mode === "short") button.textContent = compact ? "近15日" : "近30日";
-      if (mode === "long") button.textContent = compact ? "近30日" : "近60日";
-      button.setAttribute("aria-pressed", String(mode === equityChartRange));
-      button.onclick = () => {
-        if (equityChartRange === mode && equityChartVisibleCount == null) return;
-        equityChartRange = mode;
-        equityChartVisibleCount = null;
-        equityChartWindowEnd = null;
-        equityChartScrollToLatest = mode === "all";
-        renderChart(trades);
-      };
-    });
-    earlierButton.disabled = equityChartRange === "all" || !model.canMoveEarlier;
-    laterButton.disabled = equityChartRange === "all" || !model.canMoveLater;
+    fitButton.setAttribute("aria-pressed", String(equityChartRange === "fit" && equityChartVisibleCount == null && equityChartPriceDomain == null));
+    allButton.setAttribute("aria-pressed", String(equityChartRange === "all" && equityChartVisibleCount == null));
+    fitButton.onclick = () => {
+      equityChartRange = "fit";
+      equityChartVisibleCount = null;
+      equityChartWindowEnd = null;
+      equityChartPriceDomain = null;
+      renderChart(trades);
+    };
+    allButton.onclick = () => {
+      equityChartRange = "all";
+      equityChartVisibleCount = null;
+      equityChartWindowEnd = null;
+      renderChart(trades);
+    };
     focusButton.setAttribute("aria-pressed", String(equityChartFocused));
     focusButton.setAttribute("aria-label", equityChartFocused ? "退出日K图专注视图" : "进入日K图专注视图");
     focusButton.textContent = equityChartFocused ? "退出专注" : "专注视图";
@@ -460,6 +470,7 @@ import { safeReturnHash, tokenNeedsRefresh } from "./session.js?v=20260804-1";
       focusButton.focus();
     };
     if (!trades.length) {
+      tooltip.hidden = true;
       svg.innerHTML = `<text x="${W / 2}" y="${H / 2}" text-anchor="middle" class="axis-label">暂无交易</text>`;
       $("chartCaption").textContent = "0 个交易日";
       return;
@@ -467,48 +478,70 @@ import { safeReturnHash, tokenNeedsRefresh } from "./session.js?v=20260804-1";
     const latestPoint = values.at(-1);
     const latestY = points.at(-1)[1];
     svg.innerHTML = `<title>累计已实现盈亏日K图</title><desc>每根K线代表一个交易日；开盘承接前一交易日收盘，最高和最低为当天按平仓时间顺序逐笔累加后的累计盈亏极值，收盘为当日结束时的累计净盈亏。移动十字光标查看行情，滚轮缩放，拖拽平移。</desc>
-      <defs><linearGradient id="equityPlotGradient" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#f7fafc"/><stop offset="100%" stop-color="#fffdf8"/></linearGradient></defs>
-      <rect class="equity-plot-surface" x="${pad.l}" y="${pad.t}" width="${W - pad.l - pad.r}" height="${H - pad.t - pad.b}" rx="8"/>
-      ${ticks.map((value, index) => `<line class="axis" x1="${pad.l}" y1="${tickYs[index]}" x2="${W - pad.r}" y2="${tickYs[index]}"/><text class="axis-label equity-value-label" x="${pad.l - 11}" y="${tickYs[index] + 3}" text-anchor="end">${formatEquityAxisValue(value)}</text>`).join("")}
-      <line class="equity-zero" x1="${pad.l}" y1="${base}" x2="${W - pad.r}" y2="${base}"/>
-      <line class="equity-last-line" x1="${pad.l}" y1="${latestY}" x2="${W - pad.r}" y2="${latestY}"/>
-      ${candles.map((candle, index) => {
-        const day = values[index];
-        const candleClass = day.close > day.open ? "candle-profit" : day.close < day.open ? "candle-loss" : "candle-flat";
-        return `<g class="chart-target" data-index="${index}" role="img" tabindex="0" aria-label="${esc(`${day.date}，开盘 ${money(day.open)} 元，最高 ${money(day.high)} 元，最低 ${money(day.low)} 元，收盘 ${money(day.close)} 元，当日净盈亏 ${money(day.dayPnl)} 元，共 ${day.tradeCount} 笔交易`)}"><rect class="chart-hit" x="${hitBounds[index].start}" y="${pad.t}" width="${hitBounds[index].end - hitBounds[index].start}" height="${H - pad.t - pad.b}"/><line class="candle-wick ${candleClass}" x1="${candle.x}" y1="${candle.highY}" x2="${candle.x}" y2="${candle.lowY}"/><rect class="candle-body ${candleClass}" x="${candle.x - candle.bodyWidth / 2}" y="${candle.bodyY}" width="${candle.bodyWidth}" height="${candle.bodyHeight}" rx="1"><title>${esc(day.date)}｜开 ¥${money(day.open)}｜高 ¥${money(day.high)}｜低 ¥${money(day.low)}｜收 ¥${money(day.close)}</title></rect></g>`;
-      }).join("")}
+      <defs><clipPath id="equityPlotClip"><rect x="${pad.l}" y="${pad.t}" width="${W - pad.l - pad.r}" height="${H - pad.t - pad.b}"/></clipPath></defs>
+      <rect class="equity-plot-surface" x="0" y="0" width="${W}" height="${H}"/>
+      <rect class="equity-plot-frame" x="${pad.l}" y=".5" width="${W - pad.l - 1}" height="${H - 1}"/>
+      <g id="equityPriceTransformLayer" clip-path="url(#equityPlotClip)">
+        ${ticks.map((value, index) => `<line class="axis" x1="${pad.l}" y1="${tickYs[index]}" x2="${W - pad.r}" y2="${tickYs[index]}"/>`).join("")}
+        <line class="equity-zero" x1="${pad.l}" y1="${base}" x2="${W - pad.r}" y2="${base}"/>
+        <line class="equity-last-line" x1="${pad.l}" y1="${latestY}" x2="${W - pad.r}" y2="${latestY}"/>
+        <g id="equityDataLayer">
+          ${candles.map((candle, index) => {
+            const day = values[index];
+            const candleClass = day.close > day.open ? "candle-profit" : day.close < day.open ? "candle-loss" : "candle-flat";
+            return `<g class="chart-target" data-index="${index}" role="img" aria-label="${esc(`${day.date}，开盘 ${money(day.open)} 元，最高 ${money(day.high)} 元，最低 ${money(day.low)} 元，收盘 ${money(day.close)} 元，当日净盈亏 ${money(day.dayPnl)} 元，共 ${day.tradeCount} 笔交易`)}"><rect class="chart-hit" x="${hitBounds[index].start}" y="${pad.t}" width="${hitBounds[index].end - hitBounds[index].start}" height="${H - pad.t - pad.b}"/><line class="candle-wick ${candleClass}" x1="${candle.x}" y1="${candle.highY}" x2="${candle.x}" y2="${candle.lowY}"/><rect class="candle-body ${candleClass}" x="${candle.x - candle.bodyWidth / 2}" y="${candle.bodyY}" width="${candle.bodyWidth}" height="${candle.bodyHeight}" rx="1"><title>${esc(day.date)}｜开 ¥${money(day.open)}｜高 ¥${money(day.high)}｜低 ¥${money(day.low)}｜收 ¥${money(day.close)}</title></rect></g>`;
+          }).join("")}
+        </g>
+      </g>
+      ${ticks.map((value, index) => `<text class="axis-label equity-value-label" x="${W - pad.r + 14}" y="${tickYs[index] + 4}" text-anchor="start">${formatEquityAxisValue(value)}</text>`).join("")}
+      <line class="equity-price-axis" x1="${W - pad.r}" y1="0" x2="${W - pad.r}" y2="${H}"/>
       <line class="equity-guide" id="equityGuideX" x1="0" y1="${pad.t}" x2="0" y2="${H - pad.b}"/>
       <line class="equity-guide equity-guide-horizontal" id="equityGuideY" x1="${pad.l}" y1="0" x2="${W - pad.r}" y2="0"/>
-      <g class="equity-cursor-price" id="equityCursorPrice"><rect class="equity-cursor-value" id="equityCursorValue" x="${W - pad.r + 6}" y="-10" width="58" height="20" rx="5"/><text class="equity-cursor-label" id="equityCursorLabel" x="${W - pad.r + 35}" y="4" text-anchor="middle"></text></g>
-      <rect class="equity-last-value" x="${W - pad.r + 6}" y="${latestY - 10}" width="58" height="20" rx="5"/>
-      <text class="equity-last-label" x="${W - pad.r + 35}" y="${latestY + 4}" text-anchor="middle">${formatEquityAxisValue(latestPoint.close)}</text>
-      ${labelIndices.map((index) => `<text class="axis-label equity-date-label" x="${points[index][0]}" y="${H - 14}" text-anchor="middle">${esc(values[index].displayDate || formatEquityDateLabel(values[index].date))}</text>`).join("")}`;
+      <g class="equity-cursor-price" id="equityCursorPrice"><rect class="equity-cursor-value" id="equityCursorValue" x="${W - pad.r + 6}" y="-12" width="${pad.r - 12}" height="24" rx="4"/><text class="equity-cursor-label" id="equityCursorLabel" x="${W - pad.r / 2}" y="5" text-anchor="middle"></text></g>
+      <g class="equity-cursor-date" id="equityCursorDate"><rect x="-42" y="${H - 40}" width="84" height="25" rx="4"/><text id="equityCursorDateLabel" x="0" y="${H - 23}" text-anchor="middle"></text></g>
+      <rect class="equity-last-value" x="${W - pad.r + 6}" y="${latestY - 12}" width="${pad.r - 12}" height="24" rx="4"/>
+      <text class="equity-last-label" x="${W - pad.r / 2}" y="${latestY + 5}" text-anchor="middle">${formatEquityAxisValue(latestPoint.close)}</text>
+      <g id="equityDateLayer">${labelIndices.map((index) => `<text class="axis-label equity-date-label" data-index="${index}" x="${points[index][0]}" y="${H - 14}" text-anchor="middle">${esc(values[index].displayDate || formatEquityDateLabel(values[index].date))}</text>`).join("")}</g>
+      <rect class="equity-price-scale-hit" x="${W - pad.r}" y="${pad.t}" width="${pad.r}" height="${H - pad.t - pad.b}" aria-label="拖动缩放价格轴，双击恢复自动适配"/>`;
     svg.setAttribute("aria-label", `累计已实现盈亏日K图，当前显示 ${values.length} 个交易日，共 ${model.totalDays} 个交易日。悬停或使用左右方向键查看交易日数据。`);
     const guideX = $("equityGuideX");
     const guideY = $("equityGuideY");
     const cursorPrice = $("equityCursorPrice");
     const cursorLabel = $("equityCursorLabel");
+    const cursorDate = $("equityCursorDate");
+    const cursorDateLabel = $("equityCursorDateLabel");
+    const dataLayer = $("equityDataLayer");
+    const dateLayer = $("equityDateLayer");
+    const priceTransformLayer = $("equityPriceTransformLayer");
+    const priceScaleHit = svg.querySelector(".equity-price-scale-hit");
     const guides = [guideX, guideY];
     const targets = [...svg.querySelectorAll(".chart-target")];
     let dragState = null;
+    let priceScaleState = null;
+    const requestedActiveIndex = values.findIndex((point) => point.dateKey === equityChartActiveDateKey);
+    let activeIndex = requestedActiveIndex >= 0 ? requestedActiveIndex : values.length - 1;
 
-    const activatePoint = (index, { focus = false, cursorY = points[index]?.[1], showGuides = true } = {}) => {
+    const activatePoint = (index, { cursorY = points[index]?.[1], showGuides = true } = {}) => {
       if (index < 0 || index >= values.length) return;
+      activeIndex = index;
       const point = values[index];
       const [pointX] = points[index];
+      equityChartActiveDateKey = point.dateKey;
       targets.forEach((target, targetIndex) => target.classList.toggle("is-active", targetIndex === index));
+      svg.querySelectorAll(".equity-date-label").forEach((label) => label.classList.toggle("is-cursor-date", showGuides && Number(label.dataset.index) === index));
       guides.forEach((guide) => guide.classList.toggle("is-visible", showGuides));
       guideX.setAttribute("x1", pointX);
       guideX.setAttribute("x2", pointX);
       const boundedCursorY = Math.max(pad.t, Math.min(H - pad.b, cursorY));
       guideY.setAttribute("y1", boundedCursorY);
       guideY.setAttribute("y2", boundedCursorY);
-      const domainTop = ticks[0];
-      const domainBottom = ticks.at(-1);
-      const cursorValue = domainTop - (boundedCursorY - pad.t) / (H - pad.t - pad.b) * (domainTop - domainBottom);
+      const cursorValue = model.domainMax - (boundedCursorY - pad.t) / (H - pad.t - pad.b) * (model.domainMax - model.domainMin);
       cursorPrice.classList.toggle("is-visible", showGuides);
       cursorPrice.setAttribute("transform", `translate(0 ${boundedCursorY})`);
       cursorLabel.textContent = formatEquityAxisValue(cursorValue);
+      cursorDate.classList.toggle("is-visible", showGuides);
+      cursorDate.setAttribute("transform", `translate(${pointX} 0)`);
+      cursorDateLabel.textContent = point.displayDate || formatEquityDateLabel(point.date);
       $("equityTooltipId").textContent = point.dateKey || point.date;
       $("equityTooltipSummary").textContent = point.summary;
       for (const [id, value] of [["equityTooltipOpenValue", point.open], ["equityTooltipHigh", point.high], ["equityTooltipLow", point.low], ["equityTooltipClose", point.close], ["equityTooltipPnl", point.dayPnl]]) {
@@ -516,13 +549,6 @@ import { safeReturnHash, tokenNeedsRefresh } from "./session.js?v=20260804-1";
         $(id).className = id === "equityTooltipPnl" ? signedClass(value) : "";
       }
       tooltip.hidden = false;
-      if (focus) targets[index].focus();
-    };
-    const moveFocus = (fromIndex, direction) => activatePoint(Math.max(0, Math.min(values.length - 1, fromIndex + direction)), { focus: true });
-    const shiftWindow = (direction, amount = Math.max(1, Math.floor(values.length * .8))) => {
-      if (equityChartRange === "all") return;
-      equityChartWindowEnd = Math.max(values.length, Math.min(model.totalDays, model.visibleEnd + direction * amount));
-      renderChart(trades);
     };
 
     targets.forEach((target, index) => {
@@ -531,31 +557,64 @@ import { safeReturnHash, tokenNeedsRefresh } from "./session.js?v=20260804-1";
         if (dragState?.moved) return;
         if (event.pointerType === "touch") { event.preventDefault(); activatePoint(index); return; }
       });
-      target.addEventListener("focus", () => activatePoint(index));
-      target.addEventListener("keydown", (event) => {
-        if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
-          event.preventDefault();
-          moveFocus(index, event.key === "ArrowLeft" ? -1 : 1);
-        } else if (event.key === "Escape") {
-          event.preventDefault();
-          activatePoint(values.length - 1);
-          target.blur();
-        }
-      });
     });
-    viewport.onpointerdown = (event) => {
+    svg.onkeydown = (event) => {
+      if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+        event.preventDefault();
+        activatePoint(Math.max(0, Math.min(values.length - 1, activeIndex + (event.key === "ArrowLeft" ? -1 : 1))));
+      } else if (event.key === "Home" || event.key === "End") {
+        event.preventDefault();
+        activatePoint(event.key === "Home" ? 0 : values.length - 1);
+      } else if (event.key === "Escape") {
+        event.preventDefault();
+        activatePoint(values.length - 1, { showGuides: false });
+        svg.blur();
+      }
+    };
+    priceScaleHit.onpointerdown = (event) => {
       if (event.button !== 0) return;
-      const captureTarget = event.target.closest?.(".chart-target") || viewport;
-      dragState = { pointerId: event.pointerId, captureTarget, startX: event.clientX, startScrollLeft: viewport.scrollLeft, moved: false };
-      captureTarget.setPointerCapture?.(event.pointerId);
+      event.preventDefault();
+      event.stopPropagation();
+      priceScaleState = {
+        pointerId: event.pointerId,
+        startY: event.clientY,
+        startDomain: { min: model.domainMin, max: model.domainMax },
+        previewDomain: { min: model.domainMin, max: model.domainMax },
+      };
+      priceScaleHit.setPointerCapture?.(event.pointerId);
+      viewport.classList.add("is-scaling");
+    };
+    priceScaleHit.ondblclick = (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      equityChartPriceDomain = null;
+      renderChart(trades);
+    };
+    viewport.onpointerdown = (event) => {
+      if (event.button !== 0 || event.target.closest?.(".equity-price-scale-hit")) return;
+      dragState = { pointerId: event.pointerId, startX: event.clientX, moved: false, previewOffset: 0 };
+      viewport.setPointerCapture?.(event.pointerId);
     };
     viewport.onpointermove = (event) => {
+      if (priceScaleState && priceScaleState.pointerId === event.pointerId) {
+        const deltaPixels = event.clientY - priceScaleState.startY;
+        priceScaleState.previewDomain = scaleEquityPriceDomain({ ...priceScaleState.startDomain, deltaPixels, plotHeight: H - pad.t - pad.b });
+        const startSpan = priceScaleState.startDomain.max - priceScaleState.startDomain.min;
+        const nextSpan = priceScaleState.previewDomain.max - priceScaleState.previewDomain.min;
+        const scale = startSpan / nextSpan;
+        const centerY = (pad.t + H - pad.b) / 2;
+        priceTransformLayer.setAttribute("transform", `translate(0 ${centerY}) scale(1 ${scale}) translate(0 ${-centerY})`);
+        return;
+      }
       if (dragState && dragState.pointerId === event.pointerId) {
         const deltaX = event.clientX - dragState.startX;
-        if (Math.abs(deltaX) < 6) return;
+        if (Math.abs(deltaX) < 3) return;
         dragState.moved = true;
         viewport.classList.add("is-dragging");
-        if (equityChartRange === "all") viewport.scrollLeft = dragState.startScrollLeft - deltaX;
+        const previewOffset = (deltaX > 0 && !model.canMoveEarlier) || (deltaX < 0 && !model.canMoveLater) ? 0 : deltaX;
+        dragState.previewOffset = previewOffset;
+        dataLayer.setAttribute("transform", `translate(${previewOffset} 0)`);
+        dateLayer.setAttribute("transform", `translate(${previewOffset} 0)`);
         return;
       }
       const target = event.target.closest?.(".chart-target");
@@ -565,54 +624,94 @@ import { safeReturnHash, tokenNeedsRefresh } from "./session.js?v=20260804-1";
       activatePoint(Number(target.dataset.index), { cursorY });
     };
     const finishDrag = (event, cancelled = false) => {
+      if (priceScaleState && priceScaleState.pointerId === event.pointerId) {
+        const completedScale = priceScaleState;
+        priceScaleState = null;
+        viewport.classList.remove("is-scaling");
+        priceScaleHit.releasePointerCapture?.(event.pointerId);
+        if (!cancelled) equityChartPriceDomain = completedScale.previewDomain;
+        renderChart(trades);
+        return;
+      }
       if (!dragState || dragState.pointerId !== event.pointerId) return;
       const completedDrag = dragState;
       dragState = null;
       viewport.classList.remove("is-dragging");
-      completedDrag.captureTarget.releasePointerCapture?.(event.pointerId);
-      if (cancelled || !completedDrag.moved || equityChartRange === "all") return;
-      const slotPixels = Math.max(12, viewport.clientWidth / Math.max(1, model.layoutSlotCount));
-      const dayShift = Math.max(1, Math.round(Math.abs(event.clientX - completedDrag.startX) / slotPixels));
-      shiftWindow(event.clientX > completedDrag.startX ? -1 : 1, dayShift);
+      viewport.releasePointerCapture?.(event.pointerId);
+      if (cancelled || !completedDrag.moved) {
+        dataLayer.removeAttribute("transform");
+        dateLayer.removeAttribute("transform");
+        return;
+      }
+      const pan = resolveEquityPanWindow({
+        totalDays: model.totalDays,
+        visibleStart: model.visibleStart,
+        visibleEnd: model.visibleEnd,
+        deltaPixels: completedDrag.previewOffset,
+        plotWidth: W - pad.l - pad.r,
+      });
+      equityChartWindowEnd = pan.windowEnd;
+      if (pan.dayShift) equityChartRange = "custom";
+      renderChart(trades);
     };
     viewport.onpointerup = (event) => finishDrag(event);
     viewport.onpointercancel = (event) => finishDrag(event, true);
     viewport.onwheel = (event) => {
       if (!event.deltaY || Math.abs(event.deltaX) > Math.abs(event.deltaY)) return;
       event.preventDefault();
-      const bounds = svg.getBoundingClientRect();
-      const anchorRatio = Math.max(0, Math.min(1, (event.clientX - bounds.left) / Math.max(1, bounds.width)));
-      const nextVisibleCount = Math.round(values.length * (event.deltaY < 0 ? .82 : 1.22));
-      const zoom = resolveEquityZoomWindow({
-        totalDays: model.totalDays,
-        visibleStart: model.visibleStart,
-        visibleEnd: model.visibleEnd,
-        nextVisibleCount,
-        anchorRatio,
-        minimumVisibleCount: compact ? 5 : 6,
+      if (event.target.closest?.(".equity-price-scale-hit")) {
+        equityChartPriceDomain = scaleEquityPriceDomain({
+          min: model.domainMin,
+          max: model.domainMax,
+          deltaPixels: event.deltaY * .25,
+          plotHeight: H - pad.t - pad.b,
+        });
+        renderChart(trades);
+        return;
+      }
+      equityChartWheelDelta += event.deltaY;
+      if (equityChartWheelFrame) return;
+      equityChartWheelFrame = requestAnimationFrame(() => {
+        const deltaY = equityChartWheelDelta;
+        equityChartWheelDelta = 0;
+        equityChartWheelFrame = 0;
+        const bounds = svg.getBoundingClientRect();
+        const anchorRatio = resolveEquityPointerRatio({
+          clientX: event.clientX,
+          boundsLeft: bounds.left,
+          boundsWidth: bounds.width,
+          chartWidth: W,
+          padLeft: pad.l,
+          padRight: pad.r,
+        });
+        const nextVisibleCount = resolveEquityWheelCount({
+          currentVisibleCount: values.length,
+          totalDays: model.totalDays,
+          deltaY,
+          minimumVisibleCount: compact ? 5 : 6,
+        });
+        const zoom = resolveEquityZoomWindow({
+          totalDays: model.totalDays,
+          visibleStart: model.visibleStart,
+          visibleEnd: model.visibleEnd,
+          nextVisibleCount,
+          anchorRatio,
+          minimumVisibleCount: compact ? 5 : 6,
+        });
+        if (zoom.visibleCount === values.length && zoom.windowEnd === model.visibleEnd) return;
+        equityChartRange = "custom";
+        equityChartVisibleCount = zoom.visibleCount;
+        equityChartWindowEnd = zoom.windowEnd;
+        renderChart(trades);
       });
-      if (zoom.visibleCount === values.length && zoom.windowEnd === model.visibleEnd) return;
-      equityChartRange = "custom";
-      equityChartVisibleCount = zoom.visibleCount;
-      equityChartWindowEnd = zoom.windowEnd;
-      equityChartScrollToLatest = false;
-      renderChart(trades);
     };
     shell.onmouseleave = () => { if (!shell.contains(document.activeElement)) activatePoint(values.length - 1, { showGuides: false }); };
     shell.onfocusout = () => requestAnimationFrame(() => { if (!shell.contains(document.activeElement)) activatePoint(values.length - 1, { showGuides: false }); });
-    earlierButton.onclick = () => shiftWindow(-1);
-    laterButton.onclick = () => shiftWindow(1);
-    activatePoint(values.length - 1, { showGuides: false });
+    activatePoint(activeIndex, { showGuides: false });
     const visibleText = values.length === model.totalDays
       ? `${model.totalDays} 个交易日`
       : `${model.visibleStart + 1}–${model.visibleEnd} / ${model.totalDays} 个交易日`;
-    $("chartCaption").textContent = `${visibleText} · ${trades.length} 笔完整交易 · 滚轮缩放 · 拖动平移`;
-    if (equityChartRange === "all" && equityChartScrollToLatest) {
-      equityChartScrollToLatest = false;
-      requestAnimationFrame(() => { viewport.scrollLeft = viewport.scrollWidth; });
-    } else if (equityChartRange !== "all") {
-      viewport.scrollLeft = 0;
-    }
+    $("chartCaption").textContent = `累计净盈亏（日线，等比） · ${visibleText} · ${trades.length} 笔完整交易`;
   }
 
   function renderBrief(trades, summary) {
