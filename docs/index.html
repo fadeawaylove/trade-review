@@ -14,7 +14,7 @@
   <link rel="stylesheet" href="./styles.css?v=20260810-1">
   <link rel="stylesheet" href="./readability.css?v=20260811-3">
   <link rel="stylesheet" href="./vendor/vditor/dist/index.css?v=3.11.2">
-  <link rel="stylesheet" href="./articles.css?v=20260810-2">
+  <link rel="stylesheet" href="./articles.css?v=20260812-1">
 </head>
 <body>
   <div class="grain" aria-hidden="true"></div>
@@ -140,14 +140,18 @@
       <section class="articles-section" id="articlesSection" hidden>
         <header class="journal-header">
           <button class="journal-brand" id="journalHomeButton" type="button" aria-label="返回手记首页">
-            <strong>手记</strong><span>PRIVATE JOURNAL</span>
+            <span class="journal-brand-avatar" aria-hidden="true"><img id="journalBrandAvatar" alt=""><b id="journalBrandFallback">我</b></span>
+            <span class="journal-brand-wordmark"><strong>手记</strong><small>PRIVATE JOURNAL</small></span>
           </button>
           <nav class="journal-nav" aria-label="手记导航">
-            <button id="journalArticlesButton" type="button" aria-current="page">文章</button>
-            <button id="journalTagsButton" type="button">标签</button>
+            <button id="journalHomeNavButton" type="button" aria-current="page">首页</button>
+            <button id="journalArticlesButton" type="button">文章</button>
+            <button id="journalTagsButton" type="button">主题</button>
+            <button id="journalArchiveButton" type="button">归档</button>
             <button id="journalAboutButton" type="button">关于</button>
           </nav>
           <div class="journal-actions">
+            <button class="journal-search-button" id="journalSearchButton" type="button">搜索</button>
             <button class="journal-trades-button" id="journalTradesButton" type="button">交易复盘</button>
             <button id="tradesSectionButton" type="button" hidden>复盘台</button>
             <button class="journal-write-button" id="journalWriteButton" type="button">写文章</button>
@@ -173,18 +177,32 @@
 
         <div class="journal-home" id="articleHome">
           <main class="journal-feed">
-            <section class="journal-feature" id="articleFeature" aria-label="封面文章"></section>
-            <section class="journal-recent" aria-labelledby="journalRecentTitle">
-              <header class="journal-section-heading">
-                <div><p>RECENT NOTES</p><h2 id="journalRecentTitle">最近文章</h2></div>
-                <div class="article-list-caption"><strong id="articleListCount">0 篇</strong><span id="articleListMode">按更新时间排序</span></div>
-              </header>
-              <div class="article-list" id="articleList"></div>
+            <section class="journal-intro" id="journalIntro">
+              <span class="journal-profile-avatar" aria-hidden="true"><img id="journalProfileAvatar" alt=""><b id="journalProfileFallback">我</b></span>
+              <div><p class="journal-kicker">THE EDITOR'S DESK</p><h1>私人编辑部</h1><p>只记录值得反复推敲的交易、思考与生活。</p><small id="journalStats">正在整理手记…</small></div>
             </section>
+            <div class="journal-home-grid" id="journalHomeGrid">
+              <div class="journal-main-column">
+                <section class="journal-feature" id="articleFeature" aria-label="本期推荐"></section>
+                <section class="journal-recent" id="journalRecent" aria-labelledby="journalRecentTitle">
+                  <header class="journal-section-heading">
+                    <div><p>RECENT NOTES</p><h2 id="journalRecentTitle">最近手记</h2></div>
+                    <div class="article-list-caption"><strong id="articleListCount">0 篇</strong><span id="articleListMode">按更新时间排序</span></div>
+                  </header>
+                  <div class="article-list" id="articleList"></div>
+                </section>
+              </div>
+              <aside class="journal-sidebar" aria-label="手记索引">
+                <section><h2>主题</h2><div class="journal-topic-list" id="journalTopicList"></div><button class="journal-text-link" id="journalAllTopicsButton" type="button">查看全部主题</button></section>
+                <section><h2>归档</h2><div class="journal-archive-list" id="journalArchiveList"></div><button class="journal-text-link" id="journalAllArchiveButton" type="button">查看全部归档</button></section>
+                <blockquote><p>市场从不缺机会，缺的是耐心与纪律。</p><footer>— 写于复盘之后</footer></blockquote>
+              </aside>
+            </div>
+            <section class="journal-index-view" id="journalIndexView" hidden></section>
             <section class="journal-about" id="journalAbout" hidden>
               <p class="journal-kicker">ABOUT THIS JOURNAL</p>
               <h2>写给未来的自己。</h2>
-              <p>这里收纳交易之外的思考，也记录方法、判断与生活片段。文章只服务于回看与沉淀，不追逐更新频率。</p>
+              <p>这里收纳交易系统、价格行为、心理复盘与生活片段。文章只服务于回看与沉淀，不追逐更新频率，也不迎合算法。</p>
             </section>
           </main>
         </div>
@@ -295,9 +313,9 @@
   </div>
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
-  <script src="./config.js"></script>
+  <script src="./config.js?v=20260812-1"></script>
   <script src="./vendor/vditor/dist/js/icons/ant.js?v=3.11.2"></script>
   <script src="./vendor/vditor/dist/index.min.js?v=3.11.2"></script>
-  <script type="module" src="./app.js?v=20260811-4"></script>
+  <script type="module" src="./app.js?v=20260812-1"></script>
 </body>
 </html>

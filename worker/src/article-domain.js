@@ -25,6 +25,7 @@ function uniqueTextList(values, { limit, itemLimit, label, normalize = (value) =
 export function articleExcerpt(contentMd, limit = 180) {
   return String(contentMd || "")
     .replace(/```[\s\S]*?```/g, " ")
+    .replace(/<[^>]*>/g, " ")
     .replace(/!\[[^\]]*\]\([^)]*\)/g, " ")
     .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
     .replace(/[#>*_~`|\-]+/g, " ")

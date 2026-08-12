@@ -45,6 +45,22 @@ function dateOnly(value) {
   return value ? new Intl.DateTimeFormat("zh-CN", { year: "numeric", month: "long", day: "numeric" }).format(new Date(value)) : "—";
 }
 
+export function cleanArticleExcerpt(value) {
+  return String(value || "")
+    .replace(/<[^>]*>/g, " ")
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, " ")
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
+    .replace(/(?:article-image|blob):\S+/gi, " ")
+    .replace(/[#>*_~`|]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+export function articleReadingMinutes(article) {
+  const estimatedCharacters = Number(article?.contentLength || 0) || cleanArticleExcerpt(article?.excerpt).length * 3;
+  return Math.max(1, Math.ceil(estimatedCharacters / 500));
+}
+
 export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify, prepareImage, openTrade, recordAccess }) {
   let summaries = [];
   let deletedSummaries = [];
@@ -320,8 +336,10 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
   }
 
   function setJournalNav(active) {
+    $("journalHomeNavButton").toggleAttribute("aria-current", active === "home");
     $("journalArticlesButton").toggleAttribute("aria-current", active === "articles");
     $("journalTagsButton").toggleAttribute("aria-current", active === "tags");
+    $("journalArchiveButton").toggleAttribute("aria-current", active === "archive");
     $("journalAboutButton").toggleAttribute("aria-current", active === "about");
   }
 
@@ -333,10 +351,13 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
     $("articleEditor").hidden = true;
     $("articleEmpty").hidden = true;
     $("articleEditor").closest(".article-layout").hidden = true;
+    $("journalIntro").hidden = false;
+    $("journalHomeGrid").hidden = false;
+    $("journalIndexView").hidden = true;
     $("journalAbout").hidden = true;
     document.body.classList.remove("article-writing-open");
     $("articleEditor").closest(".article-layout").classList.remove("is-editing");
-    setJournalNav("articles");
+    setJournalNav("home");
     renderList();
   }
 
@@ -356,6 +377,62 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
     if (tags.includes(selected)) $("articleTagFilter").value = selected;
   }
 
+  function topicEntries(rows) {
+    const counts = new Map(["交易系统", "交易心理", "市场观察", "生活随笔"].map((tag) => [tag, 0]));
+    rows.forEach((article) => (article.tags || []).forEach((tag) => counts.set(tag, (counts.get(tag) || 0) + 1)));
+    return [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], "zh-CN"));
+  }
+
+  function archiveEntries(rows) {
+    const counts = new Map();
+    rows.forEach((article) => {
+      const date = new Date(article.updatedAt);
+      if (Number.isNaN(date.getTime())) return;
+      const key = `${date.getFullYear()}年${date.getMonth() + 1}月`;
+      counts.set(key, (counts.get(key) || 0) + 1);
+    });
+    return [...counts.entries()];
+  }
+
+  function renderJournalIndexes(rows) {
+    const topics = topicEntries(rows);
+    const archives = archiveEntries(rows);
+    const articleDates = rows
+      .map((article) => new Date(article.createdAt || article.updatedAt))
+      .filter((date) => !Number.isNaN(date.getTime()))
+      .sort((a, b) => a - b);
+    const startedAt = articleDates[0] || null;
+    const topicCount = topics.filter(([, count]) => count > 0).length;
+    $("journalStats").textContent = `${rows.length} 篇文章 · ${topicCount} 个主题${startedAt ? ` · 自 ${dateOnly(startedAt)}起` : ""}`;
+    $("journalTopicList").innerHTML = topics.slice(0, 4).map(([tag, count]) => `<button type="button" data-journal-topic="${esc(tag)}"><span>${esc(tag)}</span><b>${count}</b></button>`).join("");
+    $("journalArchiveList").innerHTML = archives.length
+      ? archives.slice(0, 3).map(([label, count]) => `<button type="button" data-journal-archive="${esc(label)}"><span>${esc(label)}</span><b>${count}</b></button>`).join("")
+      : `<p>还没有归档</p>`;
+  }
+
+  function showJournalIndex(mode, filter = "") {
+    const rows = summaries.filter((article) => {
+      if (!filter) return true;
+      if (mode === "tags") return (article.tags || []).includes(filter);
+      const date = new Date(article.updatedAt);
+      return `${date.getFullYear()}年${date.getMonth() + 1}月` === filter;
+    });
+    const entries = mode === "tags" ? topicEntries(summaries) : archiveEntries(summaries);
+    const heading = filter || (mode === "tags" ? "全部主题" : "文章归档");
+    $("journalIntro").hidden = true;
+    $("journalHomeGrid").hidden = true;
+    $("journalAbout").hidden = true;
+    $("journalIndexView").hidden = false;
+    $("journalIndexView").innerHTML = `
+      <header><p class="journal-kicker">${mode === "tags" ? "TOPICS" : "ARCHIVE"}</p><h1>${esc(heading)}</h1><p>${mode === "tags" ? "沿着主题重新阅读那些反复出现的判断与问题。" : "按时间回看每一次记录与修正。"}</p></header>
+      ${filter ? "" : `<div class="journal-index-cloud">${entries.map(([label, count]) => `<button type="button" data-journal-${mode === "tags" ? "topic" : "archive"}="${esc(label)}"><span>${esc(label)}</span><b>${count}</b></button>`).join("")}</div>`}
+      <div class="journal-index-articles">${rows.length ? rows.map((article) => `<button type="button" data-article-id="${article.id}"><time>${esc(dateOnly(article.updatedAt))}</time><b>${esc(article.title)}</b><span>${esc(cleanArticleExcerpt(article.excerpt) || "打开文章继续阅读")}</span></button>`).join("") : `<p class="article-list-empty">这个分类下还没有文章。</p>`}</div>`;
+    setJournalNav(mode);
+    $("journalIndexView").querySelectorAll("[data-article-id]").forEach((button) => button.addEventListener("click", () => openArticle(button.dataset.articleId)));
+    $("journalIndexView").querySelectorAll("[data-journal-topic]").forEach((button) => button.addEventListener("click", () => showJournalIndex("tags", button.dataset.journalTopic)));
+    $("journalIndexView").querySelectorAll("[data-journal-archive]").forEach((button) => button.addEventListener("click", () => showJournalIndex("archive", button.dataset.journalArchive)));
+  }
+
   function renderList() {
     const source = trashMode ? deletedSummaries : summaries;
     const rows = filterArticleSummaries(source, articleFilters());
@@ -363,14 +440,21 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
     $("articleListMode").textContent = trashMode ? "回收站" : "按更新时间排序";
     $("articleTrashButton").textContent = trashMode ? "返回全部随笔" : `随笔回收站${deletedSummaries.length ? ` ${deletedSummaries.length}` : ""}`;
     const featured = rows[0];
+    renderJournalIndexes(rows);
     $("articleFeature").hidden = trashMode;
     $("articleFeature").innerHTML = featured && !trashMode ? `
+      <div class="journal-feature-heading"><p class="journal-kicker">EDITOR'S PICK</p><h2>本期推荐</h2></div>
       <button class="journal-feature-link" type="button" data-article-id="${featured.id}">
-        <h1>${esc(featured.title)}</h1>
-        <p>${esc(featured.excerpt || "打开文章，继续这段尚未写完的思考。")}</p>
-        <span class="journal-feature-meta"><span>${featured.tags?.[0] ? esc(featured.tags[0]) : featured.status === "final" ? "已整理" : "草稿"}</span><time>${esc(dateOnly(featured.updatedAt))}</time></span>
+        <span class="journal-feature-cover"><img src="./assets/journal-feature-cover.webp" alt="摊开的交易笔记、钢笔和咖啡杯"></span>
+        <span class="journal-feature-copy">
+          <small>${featured.tags?.[0] ? esc(featured.tags[0]) : featured.status === "final" ? "已整理" : "草稿"}</small>
+          <h1>${esc(featured.title)}</h1>
+          <p>${esc(cleanArticleExcerpt(featured.excerpt) || "打开文章，继续这段尚未写完的思考。")}</p>
+          <span class="journal-tag-row">${(featured.tags || []).slice(0, 3).map((tag) => `<i>${esc(tag)}</i>`).join("")}</span>
+          <span class="journal-feature-meta"><time>${esc(dateOnly(featured.updatedAt))}</time><span>约 ${articleReadingMinutes(featured)} 分钟阅读</span><b>阅读全文</b></span>
+        </span>
       </button>` : "";
-    const listRows = trashMode ? rows : rows.slice(1);
+    const listRows = rows;
     if (!rows.length) {
       $("articleList").innerHTML = `<div class="article-list-empty">${trashMode ? "回收站中没有文章" : "当前条件下没有文章"}</div>`;
     } else if (!listRows.length) {
@@ -378,13 +462,14 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
     } else {
       $("articleList").innerHTML = listRows.map((article) => `
       <button class="article-list-item ${article.id === current?.id ? "active" : ""}" type="button" data-article-id="${article.id}">
-        <span class="article-list-title"><b>${esc(article.title)}</b></span>
-        <span class="article-list-excerpt">${esc(article.excerpt || "暂无摘要")}</span>
-        <span class="article-list-date">${esc(dateOnly(article.updatedAt))}</span>
-        <span class="article-list-topic">${article.deletedAt ? "已删除" : article.tags?.[0] ? esc(article.tags[0]) : article.status === "final" ? "随笔" : "草稿"}</span>
+        <span class="article-list-cover"><img src="./assets/${article.id === featured?.id ? "journal-feature-cover.webp" : "journal-secondary-cover.webp"}" alt=""></span>
+        <span class="article-list-copy"><b>${esc(article.title)}</b><span>${esc(cleanArticleExcerpt(article.excerpt) || "打开文章，继续这段尚未写完的思考。")}</span><small>${esc(dateOnly(article.updatedAt))} · 约 ${articleReadingMinutes(article)} 分钟阅读</small></span>
+        <span class="article-list-read">阅读全文</span>
       </button>`).join("");
     }
     $("articleHome").querySelectorAll("[data-article-id]").forEach((button) => button.addEventListener("click", () => openArticle(button.dataset.articleId)));
+    $("journalTopicList").querySelectorAll("[data-journal-topic]").forEach((button) => button.addEventListener("click", () => showJournalIndex("tags", button.dataset.journalTopic)));
+    $("journalArchiveList").querySelectorAll("[data-journal-archive]").forEach((button) => button.addEventListener("click", () => showJournalIndex("archive", button.dataset.journalArchive)));
   }
 
   async function loadSummaries() {
@@ -833,20 +918,37 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
   $("tradesSectionButton").addEventListener("click", () => showSection("trades"));
   $("articlesSectionButton").addEventListener("click", () => showSection("articles"));
   $("journalHomeButton").addEventListener("click", () => { setHash("#essays"); showArticleHome(); });
-  $("journalArticlesButton").addEventListener("click", () => { setHash("#essays"); showArticleHome(); });
+  $("journalHomeNavButton").addEventListener("click", () => { setHash("#essays"); showArticleHome(); });
+  $("journalArticlesButton").addEventListener("click", () => {
+    setHash("#essays");
+    showArticleHome({ clearCurrent: false });
+    setJournalNav("articles");
+    $("journalRecent").scrollIntoView({ behavior: "smooth", block: "start" });
+  });
   $("journalTradesButton").addEventListener("click", () => showSection("trades"));
   $("journalWriteButton").addEventListener("click", () => editArticle(null).catch((error) => notify(error.message, true)));
   $("journalTagsButton").addEventListener("click", () => {
     setHash("#essays");
     showArticleHome({ clearCurrent: false });
-    setJournalNav("tags");
+    showJournalIndex("tags");
+  });
+  $("journalArchiveButton").addEventListener("click", () => {
+    setHash("#essays");
+    showArticleHome({ clearCurrent: false });
+    showJournalIndex("archive");
+  });
+  $("journalAllTopicsButton").addEventListener("click", () => showJournalIndex("tags"));
+  $("journalAllArchiveButton").addEventListener("click", () => showJournalIndex("archive"));
+  $("journalSearchButton").addEventListener("click", () => {
     $("journalAccount").open = true;
-    $("articleTagFilter").focus();
+    window.setTimeout(() => $("articleSearch").focus(), 0);
   });
   $("journalAboutButton").addEventListener("click", () => {
     setHash("#essays");
     showArticleHome({ clearCurrent: false });
-    $("journalFeature").hidden = true;
+    $("journalIntro").hidden = true;
+    $("journalHomeGrid").hidden = true;
+    $("journalIndexView").hidden = true;
     $("journalAbout").hidden = false;
     setJournalNav("about");
     $("journalAbout").scrollIntoView({ behavior: "smooth", block: "start" });
@@ -926,7 +1028,17 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
       $("articleImageInput").disabled = !canEdit();
       $("journalWriteButton").hidden = !canEdit();
       $("journalUserName").textContent = user?.name || user?.login || "私人手记";
-      $("journalUserInitial").textContent = (user?.name || user?.login || "我").trim().slice(0, 1).toUpperCase();
+      const initial = (user?.name || user?.login || "我").trim().slice(0, 1).toUpperCase();
+      $("journalUserInitial").textContent = initial;
+      $("journalBrandFallback").textContent = initial;
+      $("journalProfileFallback").textContent = initial;
+      for (const imageId of ["journalBrandAvatar", "journalProfileAvatar"]) {
+        const image = $(imageId);
+        const fallback = image.nextElementSibling;
+        image.hidden = !user?.avatar;
+        fallback.hidden = Boolean(user?.avatar);
+        if (user?.avatar) image.src = user.avatar;
+      }
       $("articleEmpty").querySelector("p").textContent = canEdit()
         ? "也可以新建或导入 Markdown 文件。"
         : "请选择一篇手记进行阅读。";

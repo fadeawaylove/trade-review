@@ -2,7 +2,7 @@ import { buildEquityChartModel, formatEquityAxisValue, formatEquityDateLabel, re
 import { buildEvidenceCarouselState } from "./evidence-carousel.js?v=20260721-1";
 import { clearAttachmentCache, loadAttachmentBlob, removeAttachmentFromCache } from "./attachment-cache.js?v=20260804-1";
 import { paginateLedgerRows } from "./ledger-pagination.js?v=20260729-1";
-import { initArticles } from "./articles.js?v=20260810-4";
+import { initArticles } from "./articles.js?v=20260812-1";
 import { safeReturnHash, tokenNeedsRefresh } from "./session.js?v=20260804-1";
 
 (() => {
@@ -369,7 +369,8 @@ import { safeReturnHash, tokenNeedsRefresh } from "./session.js?v=20260804-1";
     const node = $(id);
     node.textContent = value;
     node.classList.remove("positive", "negative");
-    if (sign !== null) node.classList.add(signedClass(sign));
+    const signClass = sign === null ? "" : signedClass(sign);
+    if (signClass) node.classList.add(signClass);
   }
 
   function renderKpis(trades, summary) {
