@@ -47,6 +47,7 @@ function dateOnly(value) {
 
 export function cleanArticleExcerpt(value) {
   return String(value || "")
+    .replace(/<img\b[^>]*(?:>|$)/gi, " ")
     .replace(/<[^>]*>/g, " ")
     .replace(/!\[[^\]]*\]\([^)]*\)/g, " ")
     .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
