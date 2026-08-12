@@ -14,7 +14,7 @@
   <link rel="stylesheet" href="./styles.css?v=20260810-1">
   <link rel="stylesheet" href="./readability.css?v=20260811-3">
   <link rel="stylesheet" href="./vendor/vditor/dist/index.css?v=3.11.2">
-  <link rel="stylesheet" href="./articles.css?v=20260812-2">
+  <link rel="stylesheet" href="./articles.css?v=20260812-3">
 </head>
 <body>
   <div class="grain" aria-hidden="true"></div>
@@ -224,7 +224,14 @@
                 <div class="article-meta" id="articleReaderMeta"></div>
                 <div class="article-tags" id="articleReaderTags"></div>
               </header>
-              <div class="article-markdown" id="articleMarkdown"></div>
+              <div class="article-reader-body" id="articleReaderBody">
+                <aside class="article-toc" id="articleToc" aria-labelledby="articleTocTitle" hidden>
+                  <p>TABLE OF CONTENTS</p>
+                  <h2 id="articleTocTitle">目录</h2>
+                  <nav id="articleTocNav" aria-label="文章目录"></nav>
+                </aside>
+                <div class="article-markdown" id="articleMarkdown"></div>
+              </div>
             </div>
             <form id="articleEditor" role="dialog" aria-modal="true" aria-labelledby="articleEditorHeading" hidden>
               <header class="article-writing-toolbar">
@@ -316,6 +323,6 @@
   <script src="./config.js?v=20260812-1"></script>
   <script src="./vendor/vditor/dist/js/icons/ant.js?v=3.11.2"></script>
   <script src="./vendor/vditor/dist/index.min.js?v=3.11.2"></script>
-  <script type="module" src="./app.js?v=20260812-2"></script>
+  <script type="module" src="./app.js?v=20260812-3"></script>
 </body>
 </html>

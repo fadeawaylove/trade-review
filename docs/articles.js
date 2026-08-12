@@ -62,6 +62,31 @@ export function articleReadingMinutes(article) {
   return Math.max(1, Math.ceil(estimatedCharacters / 500));
 }
 
+function articleHeadingSlug(value, index) {
+  const slug = String(value || "")
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, "-")
+    .replace(/^-+|-+$/g, "");
+  return `article-heading-${slug || index + 1}`;
+}
+
+export function assignArticleHeadingIds(host) {
+  const used = new Map();
+  return [...host.querySelectorAll("h1,h2,h3,h4,h5,h6")].map((heading, index) => {
+    const base = articleHeadingSlug(heading.textContent, index);
+    const count = (used.get(base) || 0) + 1;
+    used.set(base, count);
+    heading.id = count === 1 ? base : `${base}-${count}`;
+    heading.tabIndex = -1;
+    return {
+      id: heading.id,
+      level: Number(heading.tagName.slice(1)),
+      title: heading.textContent.trim() || `第 ${index + 1} 节`,
+    };
+  });
+}
+
 export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify, prepareImage, openTrade, recordAccess }) {
   let summaries = [];
   let deletedSummaries = [];
@@ -523,6 +548,10 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
     $("articleReaderMeta").textContent = `版本 ${article.revision} · ${article.updatedBy} 更新于 ${dateTime(article.updatedAt)}`;
     $("articleReaderTags").innerHTML = (article.tags || []).map((tag) => `<span>${esc(tag)}</span>`).join("");
     $("articleMarkdown").innerHTML = renderArticleMarkdown(article.contentMd);
+    const tocItems = assignArticleHeadingIds($("articleMarkdown"));
+    $("articleTocNav").innerHTML = tocItems.map((item) => `<button type="button" data-article-heading-id="${esc(item.id)}" data-level="${item.level}">${esc(item.title)}</button>`).join("");
+    $("articleToc").hidden = tocItems.length === 0;
+    $("articleReaderBody").classList.toggle("has-toc", tocItems.length > 0);
     $("articleEditButton").hidden = !canEdit() || Boolean(article.deletedAt);
     $("articleDeleteButton").hidden = !canEdit();
     $("articleDeleteButton").textContent = article.deletedAt ? "恢复随笔" : "移入回收站";
@@ -975,6 +1004,14 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
   $("articleMarkdown").addEventListener("click", (event) => {
     const reference = event.target.closest?.("[data-article-trade-id]");
     if (reference) openTrade(reference.dataset.articleTradeId);
+  });
+  $("articleTocNav").addEventListener("click", (event) => {
+    const button = event.target.closest?.("[data-article-heading-id]");
+    if (!button) return;
+    const heading = document.getElementById(button.dataset.articleHeadingId);
+    if (!heading || !$("articleMarkdown").contains(heading)) return;
+    heading.scrollIntoView({ behavior: "smooth", block: "start" });
+    heading.focus({ preventScroll: true });
   });
   $("articleEditor").addEventListener("keydown", (event) => {
     if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") {
