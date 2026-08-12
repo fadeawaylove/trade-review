@@ -14,7 +14,7 @@
   <link rel="stylesheet" href="./styles.css?v=20260810-1">
   <link rel="stylesheet" href="./readability.css?v=20260811-3">
   <link rel="stylesheet" href="./vendor/vditor/dist/index.css?v=3.11.2">
-  <link rel="stylesheet" href="./articles.css?v=20260812-1">
+  <link rel="stylesheet" href="./articles.css?v=20260812-2">
 </head>
 <body>
   <div class="grain" aria-hidden="true"></div>
@@ -235,6 +235,7 @@
                 </div>
                 <span class="article-save-state" id="articleSaveState" aria-live="polite">尚未保存</span>
                 <div class="article-writing-actions">
+                  <label class="article-status-control"><span>状态</span><select id="articleStatusInput" aria-label="随笔状态"><option value="draft">草稿</option><option value="final">已整理</option></select></label>
                   <button class="primary-button" id="articleSaveButton" type="submit">立即保存</button>
                 </div>
               </header>
@@ -262,7 +263,6 @@
                   </section>
                 </main>
                 <div class="article-editor-hidden-fields" hidden>
-                  <select id="articleStatusInput" aria-label="随笔状态"><option value="draft">草稿</option><option value="final">已整理</option></select>
                   <input id="articleTagsInput" aria-label="随笔标签">
                   <input id="articleImageInput" type="file" accept="image/png,image/jpeg,image/webp" multiple>
                   <div id="articleImages"></div>
