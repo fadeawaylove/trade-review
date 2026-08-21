@@ -4,6 +4,7 @@ import { clearAttachmentCache, loadAttachmentBlob, removeAttachmentFromCache } f
 import { paginateLedgerRows } from "./ledger-pagination.js?v=20260729-1";
 import { initArticles } from "./articles.js?v=20260812-3";
 import { safeReturnHash, tokenNeedsRefresh } from "./session.js?v=20260804-1";
+import { calculateTradeStats } from "./trade-stats.js?v=20260821-1";
 
 (() => {
   const CONFIG = window.TRADE_CONFIG || {};
@@ -347,24 +348,6 @@ import { safeReturnHash, tokenNeedsRefresh } from "./session.js?v=20260804-1";
     return (dashboard?.trades || []).filter((trade) => filters.every((key) => !selects[key].value || trade[key] === selects[key].value));
   }
 
-  function stats(trades) {
-    const wins = trades.filter((trade) => trade.netPnl > 0), losses = trades.filter((trade) => trade.netPnl < 0);
-    const sum = (rows, key) => rows.reduce((total, row) => total + Number(row[key] || 0), 0);
-    const grossWins = sum(wins, "netPnl"), grossLosses = Math.abs(sum(losses, "netPnl"));
-    let cumulative = 0, high = 0, maxDrawdown = 0;
-    trades.forEach((trade) => { cumulative += trade.netPnl; high = Math.max(high, cumulative, 0); maxDrawdown = Math.min(maxDrawdown, cumulative - high); });
-    const net = sum(trades, "netPnl"), gross = sum(trades, "grossPnl"), fees = sum(trades, "fees");
-    const avgWin = wins.length ? grossWins / wins.length : 0, avgLoss = losses.length ? grossLosses / losses.length : 0;
-    return {
-      count: trades.length, wins: wins.length, losses: losses.length, net, gross, fees,
-      winRate: trades.length ? wins.length / trades.length : 0,
-      payoff: avgLoss ? avgWin / avgLoss : null,
-      factor: grossLosses ? grossWins / grossLosses : null,
-      expectancy: trades.length ? net / trades.length : 0,
-      maxDrawdown,
-    };
-  }
-
   function setMetric(id, value, sign = null) {
     const node = $(id);
     node.textContent = value;
@@ -376,6 +359,8 @@ import { safeReturnHash, tokenNeedsRefresh } from "./session.js?v=20260804-1";
   function renderKpis(trades, summary) {
     setMetric("kpiNet", `¥ ${money(summary.net)}`, summary.net);
     $("kpiGross").textContent = `毛盈亏 ¥${money(summary.gross)}`;
+    setMetric("kpiTotalProfit", `¥ ${money(summary.totalProfit)}`, summary.totalProfit > 0 ? 1 : null);
+    setMetric("kpiTotalLoss", `¥ ${money(summary.totalLoss)}`, summary.totalLoss > 0 ? -1 : null);
     setMetric("kpiWinRate", pct(summary.winRate), summary.winRate >= .5 ? 1 : -1);
     $("kpiWins").textContent = `${summary.wins} 盈 / ${summary.losses} 亏`;
     setMetric("kpiPayoff", summary.payoff === null ? "—" : num(summary.payoff), summary.payoff === null ? null : summary.payoff - 1);
@@ -767,7 +752,7 @@ import { safeReturnHash, tokenNeedsRefresh } from "./session.js?v=20260804-1";
   }
 
   function render() {
-    const trades = selectedTrades(), summary = stats(trades);
+    const trades = selectedTrades(), summary = calculateTradeStats(trades);
     renderKpis(trades, summary); renderChart(trades); renderBrief(trades, summary); renderRows(trades);
     const pending = (dashboard?.trades || []).filter((trade) => trade.dateStatus !== "已确认").length;
     $("notice").classList.toggle("ok", pending === 0);
