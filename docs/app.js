@@ -5,7 +5,7 @@ import { paginateLedgerRows } from "./ledger-pagination.js?v=20260729-1";
 import { initArticles } from "./articles.js?v=20260812-3";
 import { safeReturnHash, tokenNeedsRefresh } from "./session.js?v=20260804-1";
 import { calculateTradeStats } from "./trade-stats.js?v=20260821-1";
-import { initSilverTargetCalculator } from "./silver-target.js?v=20260823-1";
+import { initSilverTargetCalculator } from "./silver-target.js?v=20260823-2";
 
 (() => {
   const CONFIG = window.TRADE_CONFIG || {};
@@ -45,7 +45,7 @@ import { initSilverTargetCalculator } from "./silver-target.js?v=20260823-1";
   let equityChartFocusScrollY = 0;
   let equityChartResizeFrame = 0;
   let ledgerPage = 1;
-  initSilverTargetCalculator();
+  const silverTarget = initSilverTargetCalculator({ apiFetch });
   const articles = initArticles({
     apiFetch,
     apiBase: API,
@@ -327,6 +327,7 @@ import { initSilverTargetCalculator } from "./silver-target.js?v=20260823-1";
     const currentToken = token;
     clearToken();
     currentUser = null;
+    silverTarget.disconnect();
     await clearAttachmentCache();
     setAuthVisible(true);
     if (!currentToken || !API || API.includes("__API_BASE__")) return;
@@ -1076,6 +1077,7 @@ import { initSilverTargetCalculator } from "./silver-target.js?v=20260823-1";
       dashboard = data;
       currentUser = session.user;
       articles.setSession(session.user);
+      await silverTarget.connect();
       const canEdit = currentUser.role === "editor";
       $("trashButton").hidden = !canEdit;
       $("accessHistoryButton").hidden = !canEdit;

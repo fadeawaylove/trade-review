@@ -2,6 +2,7 @@ import { githubAccessRole, isAllowedGithubLogin } from "./access.js";
 import { handleAccessHistoryRequest } from "./access-history.js";
 import { handleArticleRequest } from "./articles.js";
 import { permanentlyDeleteTrade, purgeExpiredTrades, trashPurgeAt } from "./trash.js";
+import { handleSilverTargetSettings } from "./silver-target-settings.js";
 
 const encoder = new TextEncoder();
 const SESSION_TTL_SECONDS = 60 * 60 * 24 * 30;
@@ -317,6 +318,10 @@ export default {
     if (url.pathname === "/api/access-history") {
       const accessHistoryResponse = await handleAccessHistoryRequest(request, env, user, url, { json });
       if (accessHistoryResponse) return accessHistoryResponse;
+    }
+    if (url.pathname === "/api/silver-target-settings") {
+      const silverTargetResponse = await handleSilverTargetSettings(request, env, user, url, { json, withD1Retry });
+      if (silverTargetResponse) return silverTargetResponse;
     }
     if (user.role !== "editor" && !["GET", "HEAD"].includes(request.method)) {
       return json(request, env, { error: "当前账号仅有浏览权限" }, 403);

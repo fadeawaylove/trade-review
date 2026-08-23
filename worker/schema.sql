@@ -10,6 +10,18 @@ CREATE TABLE IF NOT EXISTS overrides (
   updated_at TEXT NOT NULL
 );
 
+-- Each authorized GitHub account keeps an independent silver target anchor.
+-- Nullable prices preserve partially completed forms across devices.
+CREATE TABLE IF NOT EXISTS silver_target_settings (
+  login TEXT PRIMARY KEY,
+  contract TEXT NOT NULL DEFAULT '',
+  xag_anchor REAL CHECK (xag_anchor IS NULL OR xag_anchor > 0),
+  ag_anchor REAL CHECK (ag_anchor IS NULL OR ag_anchor > 0),
+  xag_target REAL CHECK (xag_target IS NULL OR xag_target > 0),
+  tolerance_percent REAL NOT NULL DEFAULT 0.5 CHECK (tolerance_percent >= 0 AND tolerance_percent <= 10),
+  updated_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS audit_log (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   trade_id TEXT,

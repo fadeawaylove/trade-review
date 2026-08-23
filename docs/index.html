@@ -15,7 +15,7 @@
   <link rel="stylesheet" href="./readability.css?v=20260822-1">
   <link rel="stylesheet" href="./vendor/vditor/dist/index.css?v=3.11.2">
   <link rel="stylesheet" href="./articles.css?v=20260812-3">
-  <link rel="stylesheet" href="./silver-target.css?v=20260823-1">
+  <link rel="stylesheet" href="./silver-target.css?v=20260823-2">
 </head>
 <body>
   <div class="grain" aria-hidden="true"></div>
@@ -301,7 +301,7 @@
       </header>
       <div class="silver-target-body">
         <form class="silver-target-form" id="silverTargetForm" novalidate>
-          <div class="silver-target-section-label"><span>01 / 锚点与目标</span><small>输入后实时计算</small></div>
+          <div class="silver-target-section-label"><span>01 / 锚点与目标</span><button class="silver-sync-state" id="silverSyncState" type="button" data-state="offline">登录后云同步</button></div>
           <div class="silver-target-fields">
             <label class="silver-target-field wide">
               <span>实际交易合约</span>
@@ -328,9 +328,9 @@
               <small>容纳汇率与内外盘溢价漂移</small>
             </label>
           </div>
-          <p class="silver-target-formula"><code>AG目标 = AG锚点 × XAG目标 ÷ XAG锚点</code><br>锚点会保留在当前浏览器，不上传云端。</p>
+          <p class="silver-target-formula"><code>AG目标 = AG锚点 × XAG目标 ÷ XAG锚点</code><br>锚点按当前 GitHub 账号保存到云端，换设备登录后自动恢复。</p>
           <div class="silver-target-actions">
-            <button class="primary-button" type="submit">确认换算</button>
+            <button class="primary-button" type="submit">立即同步</button>
             <button class="ghost-button" id="silverTargetReset" type="button">清空锚点</button>
           </div>
           <p class="silver-target-error" id="silverTargetError" role="alert" hidden></p>
@@ -393,6 +393,6 @@
   <script src="./config.js?v=20260812-1"></script>
   <script src="./vendor/vditor/dist/js/icons/ant.js?v=3.11.2"></script>
   <script src="./vendor/vditor/dist/index.min.js?v=3.11.2"></script>
-  <script type="module" src="./app.js?v=20260823-1"></script>
+  <script type="module" src="./app.js?v=20260823-2"></script>
 </body>
 </html>
