@@ -5,6 +5,7 @@ import { paginateLedgerRows } from "./ledger-pagination.js?v=20260729-1";
 import { initArticles } from "./articles.js?v=20260812-3";
 import { safeReturnHash, tokenNeedsRefresh } from "./session.js?v=20260804-1";
 import { calculateTradeStats } from "./trade-stats.js?v=20260821-1";
+import { initSilverTargetCalculator } from "./silver-target.js?v=20260823-1";
 
 (() => {
   const CONFIG = window.TRADE_CONFIG || {};
@@ -44,6 +45,7 @@ import { calculateTradeStats } from "./trade-stats.js?v=20260821-1";
   let equityChartFocusScrollY = 0;
   let equityChartResizeFrame = 0;
   let ledgerPage = 1;
+  initSilverTargetCalculator();
   const articles = initArticles({
     apiFetch,
     apiBase: API,

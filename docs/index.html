@@ -15,6 +15,7 @@
   <link rel="stylesheet" href="./readability.css?v=20260822-1">
   <link rel="stylesheet" href="./vendor/vditor/dist/index.css?v=3.11.2">
   <link rel="stylesheet" href="./articles.css?v=20260812-3">
+  <link rel="stylesheet" href="./silver-target.css?v=20260823-1">
 </head>
 <body>
   <div class="grain" aria-hidden="true"></div>
@@ -58,6 +59,7 @@
         </div>
         <div class="user-tools">
           <span class="cloud-state"><i></i>云端已同步</span>
+          <button class="ghost-button silver-target-button" id="silverTargetButton" type="button">白银目标换算</button>
           <button class="ghost-button space-switch-button" id="articlesSectionButton" type="button" aria-pressed="false">手记</button>
           <button class="ghost-button trash-button" id="trashButton">回收站 <span class="trash-count" id="trashCount">0</span></button>
           <button class="ghost-button" id="accessHistoryButton" type="button">访问历史</button>
@@ -288,6 +290,72 @@
     </main>
   </div>
 
+  <section class="silver-target-overlay" id="silverTargetDialog" role="dialog" aria-modal="true" aria-labelledby="silverTargetTitle" hidden>
+    <div class="silver-target-dialog">
+      <button class="silver-target-close" id="silverTargetClose" type="button" aria-label="关闭白银目标换算">×</button>
+      <div class="silver-target-scroll">
+      <header class="silver-target-header">
+        <p class="silver-target-kicker">XAGUSD → SHFE AG · Anchor calibration</p>
+        <h2 id="silverTargetTitle">白银目标换算</h2>
+        <p>用同一时刻的外盘与沪银价格校准映射关系，再把 XAGUSD 技术目标转成 AG 的执行参考。</p>
+      </header>
+      <div class="silver-target-body">
+        <form class="silver-target-form" id="silverTargetForm" novalidate>
+          <div class="silver-target-section-label"><span>01 / 锚点与目标</span><small>输入后实时计算</small></div>
+          <div class="silver-target-fields">
+            <label class="silver-target-field wide">
+              <span>实际交易合约</span>
+              <div class="silver-target-input-shell contract"><input id="silverContract" maxlength="16" placeholder="例如 AG2612" autocomplete="off"><span>SHFE</span></div>
+            </label>
+            <label class="silver-target-field">
+              <span>XAGUSD 锚点</span>
+              <div class="silver-target-input-shell"><input id="silverXagAnchor" type="number" min="0" step="0.001" inputmode="decimal" placeholder="例如 32.000" required><span>USD/oz</span></div>
+              <small>与 AG 锚点必须是同一时刻</small>
+            </label>
+            <label class="silver-target-field">
+              <span>AG 锚点</span>
+              <div class="silver-target-input-shell"><input id="silverAgAnchor" type="number" min="0" step="1" inputmode="decimal" placeholder="例如 8200" required><span>元/kg</span></div>
+              <small>填写具体合约的实时价格</small>
+            </label>
+            <label class="silver-target-field">
+              <span>XAGUSD 目标价</span>
+              <div class="silver-target-input-shell"><input id="silverXagTarget" type="number" min="0" step="0.001" inputmode="decimal" placeholder="例如 33.000" required><span>USD/oz</span></div>
+              <small>来自你的外盘结构或趋势判断</small>
+            </label>
+            <label class="silver-target-field">
+              <span>映射容差</span>
+              <div class="silver-target-input-shell"><input id="silverTolerance" type="number" min="0" max="10" step="0.1" inputmode="decimal" value="0.5" required><span>± %</span></div>
+              <small>容纳汇率与内外盘溢价漂移</small>
+            </label>
+          </div>
+          <p class="silver-target-formula"><code>AG目标 = AG锚点 × XAG目标 ÷ XAG锚点</code><br>锚点会保留在当前浏览器，不上传云端。</p>
+          <div class="silver-target-actions">
+            <button class="primary-button" type="submit">确认换算</button>
+            <button class="ghost-button" id="silverTargetReset" type="button">清空锚点</button>
+          </div>
+          <p class="silver-target-error" id="silverTargetError" role="alert" hidden></p>
+        </form>
+
+        <aside class="silver-target-result silver-result-state" id="silverResultState" data-direction="flat" aria-live="polite">
+          <div class="silver-result-heading"><span>CALIBRATED TARGET</span><b id="silverResultContract">AG</b></div>
+          <div class="silver-result-main">
+            <span>AG 理论目标中心</span>
+            <div class="silver-result-price"><strong id="silverAgTarget">—</strong><small>元 / 千克</small></div>
+          </div>
+          <div class="silver-result-range"><span>执行参考区间</span><b id="silverAgRange">等待完整锚点</b></div>
+          <dl class="silver-result-metrics">
+            <div><dt>XAG预期涨跌</dt><dd id="silverExpectedMove">—</dd></div>
+            <div><dt>AG对应点数</dt><dd id="silverAgPoints">—</dd></div>
+            <div><dt>锚定系数</dt><dd id="silverAnchorRatio">—</dd></div>
+            <div><dt>映射假设</dt><dd>同刻比例延续</dd></div>
+          </dl>
+          <p class="silver-target-note">结果用于规划止盈区，不是精确行情预测。临近目标时，仍以实际 AG 合约的压力位、盘口强弱和交易计划为准。</p>
+        </aside>
+      </div>
+      </div>
+    </div>
+  </section>
+
   <section class="trade-workspace" id="tradeWorkspace" role="dialog" aria-modal="true" aria-labelledby="workspaceTitle" hidden>
     <header class="workspace-toolbar">
       <button class="workspace-back" id="workspaceBack" type="button">← 返回总览</button>
@@ -325,6 +393,6 @@
   <script src="./config.js?v=20260812-1"></script>
   <script src="./vendor/vditor/dist/js/icons/ant.js?v=3.11.2"></script>
   <script src="./vendor/vditor/dist/index.min.js?v=3.11.2"></script>
-  <script type="module" src="./app.js?v=20260821-1"></script>
+  <script type="module" src="./app.js?v=20260823-1"></script>
 </body>
 </html>
