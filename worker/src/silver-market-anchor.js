@@ -178,7 +178,8 @@ export async function syncSilverMarketAnchors(db, now = new Date(), { fetchImpl 
   const contracts = [...new Set([...agCandidates(now), ...(rows.results || []).map((row) => String(row.contract || ""))].filter((contract) => AG_CONTRACT.test(contract)))];
   let response;
   try {
-    response = await fetchImpl(`${SINA_URL}hf_XAG,${contracts.map((contract) => `nf_${contract}`).join(",")}`, { headers: { Referer: "https://finance.sina.com.cn/" }, redirect: "error", signal: AbortSignal.timeout(8000) });
+    response = await fetchImpl(`${SINA_URL}hf_XAG,${contracts.map((contract) => `nf_${contract}`).join(",")}`, { headers: { Referer: "https://finance.sina.com.cn/" }, redirect: "manual", signal: AbortSignal.timeout(8000) });
+    if (response.status >= 300 && response.status < 400) throw new Error(`redirect_${response.status}`);
     if (!response.ok) throw new Error(`http_${response.status}`);
     const quotes = parseSinaQuotes(await limitedText(response), contracts, now);
     if (!quotes.length) throw new Error("invalid_quotes");
