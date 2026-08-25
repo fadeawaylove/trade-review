@@ -4,7 +4,7 @@
   "main": "worker/src/index.js",
   "compatibility_date": "2026-07-18",
   "observability": { "enabled": true },
-  "triggers": { "crons": ["0 * * * *"] },
+  "triggers": { "crons": ["*/30 * * * *"] },
   "vars": {
     "ALLOWED_ORIGIN": "https://fadeawaylove.github.io",
     "PAGES_URL": "https://fadeawaylove.github.io/trade-review/",
