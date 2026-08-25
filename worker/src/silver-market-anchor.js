@@ -1,6 +1,7 @@
 const SINA_URL = "https://hq.sinajs.cn/list=";
 const MAX_RESPONSE_BYTES = 64 * 1024;
 const MAX_QUOTE_AGE_MS = 15 * 60 * 1000;
+const MAX_QUOTE_CLOCK_SKEW_MS = 60 * 1000;
 const MARKET_ANCHOR_STALE_MS = 90 * 60 * 1000;
 const MAX_QUOTE_GAP_MS = 120 * 1000;
 const AG_CONTRACT = /^AG\d{4}$/;
@@ -38,8 +39,11 @@ export function isAgTradingTime(now = new Date()) {
 }
 
 function quoteTime(date, time) {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(date || "") || !/^\d{2}:\d{2}:\d{2}$/.test(time || "")) return null;
-  const value = Date.parse(`${date}T${time}+08:00`);
+  const rawTime = String(time || "");
+  const compact = rawTime.match(/^(\d{2})(\d{2})(\d{2})$/);
+  const normalizedTime = compact ? `${compact[1]}:${compact[2]}:${compact[3]}` : rawTime;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date || "") || !/^\d{2}:\d{2}:\d{2}$/.test(normalizedTime)) return null;
+  const value = Date.parse(`${date}T${normalizedTime}+08:00`);
   return Number.isFinite(value) ? value : null;
 }
 
@@ -82,7 +86,7 @@ export function parseSinaQuotes(body, contracts, now = new Date()) {
   if (!xag || xag.length <= 12) return [];
   const xagAnchor = field(xag?.[0]);
   const xagAt = quoteTime(xag?.[12], xag?.[6]);
-  if (!xagAnchor || !xagAt || xagAt > now.getTime() || now.getTime() - xagAt > MAX_QUOTE_AGE_MS) return [];
+  if (!xagAnchor || !xagAt || xagAt - now.getTime() > MAX_QUOTE_CLOCK_SKEW_MS || now.getTime() - xagAt > MAX_QUOTE_AGE_MS) return [];
   const result = [];
   for (const contract of contracts) {
     const ag = quoted.get(`nf_${contract}`);
@@ -92,7 +96,7 @@ export function parseSinaQuotes(body, contracts, now = new Date()) {
     // 新浪国内期货返回的是交易日；夜盘可能已经是下一交易日。
     // 用同一响应里的 XAG 自然日重建时刻，避免把同一分钟误差解析成相差一天。
     const agAt = quoteTime(xag?.[12], ag?.[1]);
-    if (!agAnchor || !agAt || agAt > now.getTime() || now.getTime() - agAt > MAX_QUOTE_AGE_MS || Math.abs(agAt - xagAt) > MAX_QUOTE_GAP_MS) continue;
+    if (!agAnchor || !agAt || agAt - now.getTime() > MAX_QUOTE_CLOCK_SKEW_MS || now.getTime() - agAt > MAX_QUOTE_AGE_MS || Math.abs(agAt - xagAt) > MAX_QUOTE_GAP_MS) continue;
     // Captured live on 2026-08-25 from multiple nf_AG contracts: index 13 is
     // volume and index 14 is open interest. Reject rather than infer a shift.
     const volume = field(ag?.[13]);
