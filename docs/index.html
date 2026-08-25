@@ -303,9 +303,15 @@
         <form class="silver-target-form" id="silverTargetForm" novalidate>
           <div class="silver-target-section-label"><span>01 / 锚点与目标</span><button class="silver-sync-state" id="silverSyncState" type="button" data-state="offline">登录后云同步</button></div>
           <div class="silver-target-fields">
+            <fieldset class="silver-contract-mode wide">
+              <legend>合约来源</legend>
+              <label><input id="silverContractAuto" name="silverContractMode" type="radio" value="auto" checked> 自动主力</label>
+              <label><input id="silverContractManual" name="silverContractMode" type="radio" value="manual"> 指定合约</label>
+            </fieldset>
             <label class="silver-target-field wide">
               <span>实际交易合约</span>
-              <div class="silver-target-input-shell contract"><input id="silverContract" maxlength="16" placeholder="例如 AG2612" autocomplete="off"><span>SHFE</span></div>
+              <div class="silver-target-input-shell contract"><input id="silverContract" maxlength="16" placeholder="等待自动主力" autocomplete="off" readonly><span>SHFE</span></div>
+              <small id="silverContractHint">自动主力尚未选出时将保持等待态</small>
             </label>
             <label class="silver-target-field">
               <span>XAGUSD 锚点</span>
@@ -317,6 +323,7 @@
               <div class="silver-target-input-shell"><input id="silverAgAnchor" type="number" min="0" step="1" inputmode="decimal" placeholder="例如 8200" required><span>元/kg</span></div>
               <small>填写具体合约的实时价格</small>
             </label>
+            <p class="silver-market-anchor-state" id="silverMarketAnchorState" role="status">行情暂不可用，保留个人手工锚点</p>
             <label class="silver-target-field">
               <span>XAGUSD 目标价</span>
               <div class="silver-target-input-shell"><input id="silverXagTarget" type="number" min="0" step="0.001" inputmode="decimal" placeholder="例如 33.000" required><span>USD/oz</span></div>
@@ -328,7 +335,7 @@
               <small>容纳汇率与内外盘溢价漂移</small>
             </label>
           </div>
-          <p class="silver-target-formula"><code>AG目标 = AG锚点 × XAG目标 ÷ XAG锚点</code><br>锚点按当前 GitHub 账号保存到云端，换设备登录后自动恢复。</p>
+          <p class="silver-target-formula"><code>AG目标 = AG锚点 × XAG目标 ÷ XAG锚点</code><br>自动主力的合约和自动锚点来自新浪免费行情；主力陈旧或未选出时不使用旧合约。指定合约可手工填写锚点并按当前 GitHub 账号保存，换设备登录后自动恢复。</p>
           <div class="silver-target-actions">
             <button class="primary-button" type="submit">立即同步</button>
             <button class="ghost-button" id="silverTargetReset" type="button">清空锚点</button>

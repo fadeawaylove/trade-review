@@ -13,6 +13,12 @@ function optionalPositiveNumber(value, label) {
   return positiveNumber(value, label);
 }
 
+function normalizeContract(value) {
+  const contract = String(value ?? "").trim().toUpperCase();
+  if (contract && !/^AG\d{4}$/.test(contract)) throw new Error("AG 合约必须为 AG 加四位数字，例如 AG2612");
+  return contract;
+}
+
 export function calculateSilverTarget({ xagAnchor, agAnchor, xagTarget, tolerancePercent = DEFAULT_TOLERANCE_PERCENT }) {
   const normalizedXagAnchor = positiveNumber(xagAnchor, "XAGUSD 锚点");
   const normalizedAgAnchor = positiveNumber(agAnchor, "AG 锚点");
@@ -42,8 +48,12 @@ export function calculateSilverTarget({ xagAnchor, agAnchor, xagTarget, toleranc
 
 export function normalizeSilverSettings(value) {
   const source = value && typeof value === "object" && !Array.isArray(value) ? value : {};
-  const contract = String(source.contract ?? "").trim().toUpperCase();
-  if (contract.length > 16 || (contract && !/^[A-Z0-9._-]+$/.test(contract))) throw new Error("AG 合约格式不正确");
+  const contract = normalizeContract(source.contract);
+  const mode = source.mode === undefined || source.mode === null || source.mode === ""
+    ? (contract ? "manual" : "auto")
+    : String(source.mode);
+  if (!["auto", "manual"].includes(mode)) throw new Error("合约模式必须为自动主力或指定合约");
+  if (mode === "manual" && !contract) throw new Error("指定合约必须为 AG 加四位数字，例如 AG2612");
   const tolerancePercent = source.tolerancePercent === "" || source.tolerancePercent === null || source.tolerancePercent === undefined
     ? DEFAULT_TOLERANCE_PERCENT
     : Number(source.tolerancePercent);
@@ -51,12 +61,54 @@ export function normalizeSilverSettings(value) {
     throw new Error(`映射容差必须在 0–${MAX_TOLERANCE_PERCENT}% 之间`);
   }
   return {
+    mode,
     contract,
     xagAnchor: optionalPositiveNumber(source.xagAnchor, "XAGUSD 锚点"),
     agAnchor: optionalPositiveNumber(source.agAnchor, "AG 锚点"),
     xagTarget: optionalPositiveNumber(source.xagTarget, "XAGUSD 目标价"),
     tolerancePercent,
   };
+}
+
+export function normalizeContractSelection(value, settings = {}) {
+  const source = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  const normalizedSettings = normalizeSilverSettings(settings);
+  const safeContract = (contract) => {
+    try { return normalizeContract(contract); } catch { return ""; }
+  };
+  const mode = source.mode === "manual" || source.mode === "auto" ? source.mode : normalizedSettings.mode;
+  const autoContract = safeContract(source.autoContract);
+  const manualContract = safeContract(source.manualContract) || normalizedSettings.contract;
+  const suppliedEffective = safeContract(source.effectiveContract);
+  const effectiveContract = mode === "auto"
+    ? (autoContract || suppliedEffective)
+    : (manualContract || suppliedEffective);
+  return {
+    mode,
+    autoContract,
+    manualContract,
+    effectiveContract,
+    selectedAt: String(source.selectedAt || ""),
+    observedAt: String(source.observedAt || ""),
+    stale: Boolean(source.stale),
+    error: String(source.error || ""),
+  };
+}
+
+export function resolveSilverAnchor(settings, marketAnchor, effectiveContract = null) {
+  const personal = normalizeSilverSettings(settings);
+  const market = marketAnchor && typeof marketAnchor === "object" ? marketAnchor : null;
+  const contract = normalizeContract(effectiveContract ?? personal.contract);
+  if (market && market.contract === contract) {
+    try {
+      return {
+        mode: "market",
+        xagAnchor: positiveNumber(market.xagAnchor, "XAGUSD 锚点"),
+        agAnchor: positiveNumber(market.agAnchor, "AG 锚点"),
+      };
+    } catch {}
+  }
+  return { mode: "manual", xagAnchor: personal.xagAnchor, agAnchor: personal.agAnchor };
 }
 
 const numberFormat = new Intl.NumberFormat("zh-CN", { maximumFractionDigits: 0 });
@@ -97,6 +149,8 @@ export function initSilverTargetCalculator({ root = document, apiFetch = null, d
 
   const fields = {
     contract: byId("silverContract"),
+    contractAuto: byId("silverContractAuto"),
+    contractManual: byId("silverContractManual"),
     xagAnchor: byId("silverXagAnchor"),
     agAnchor: byId("silverAgAnchor"),
     xagTarget: byId("silverXagTarget"),
@@ -112,6 +166,8 @@ export function initSilverTargetCalculator({ root = document, apiFetch = null, d
     state: byId("silverResultState"),
     error: byId("silverTargetError"),
     sync: byId("silverSyncState"),
+    market: byId("silverMarketAnchorState"),
+    contractHint: byId("silverContractHint"),
   };
   let cloudReady = false;
   let connectPromise = null;
@@ -120,19 +176,78 @@ export function initSilverTargetCalculator({ root = document, apiFetch = null, d
   let syncRevision = 0;
   let sessionEpoch = 0;
   let lastFingerprint = "";
+  let personalSettings = normalizeSilverSettings({});
+  let marketAnchor = null;
+  let contractSelection = normalizeContractSelection({}, personalSettings);
 
   function currentValues() {
     return Object.fromEntries(Object.entries(fields).map(([key, field]) => [key, field?.value ?? ""]));
   }
 
+  function activeMode() {
+    return fields.contractManual.checked ? "manual" : "auto";
+  }
+
+  function effectiveContract() {
+    return contractSelection.effectiveContract;
+  }
+
   function applySettings(value) {
     const settings = normalizeSilverSettings(value);
-    fields.contract.value = settings.contract;
+    personalSettings = settings;
     fields.xagAnchor.value = settings.xagAnchor ?? "";
     fields.agAnchor.value = settings.agAnchor ?? "";
     fields.xagTarget.value = settings.xagTarget ?? "";
     fields.tolerancePercent.value = settings.tolerancePercent;
     return settings;
+  }
+
+  function applyContractSelection(value) {
+    contractSelection = normalizeContractSelection(value, personalSettings);
+    fields.contractAuto.checked = contractSelection.mode === "auto";
+    fields.contractManual.checked = contractSelection.mode === "manual";
+    fields.contract.readOnly = contractSelection.mode === "auto";
+    fields.contract.value = effectiveContract();
+    fields.contract.placeholder = contractSelection.mode === "auto" ? "等待自动主力" : "例如 AG2612";
+    resultNodes.contractHint.textContent = contractSelection.mode === "auto"
+      ? (effectiveContract() ? "当前自动主力合约" : "自动主力尚未选出，等待行情确认")
+      : "指定合约需为 AG 加四位数字";
+  }
+
+  function renderMarketAnchorState() {
+    const resolved = resolveSilverAnchor(personalSettings, marketAnchor, effectiveContract());
+    const active = resolved.mode === "market";
+    fields.xagAnchor.value = resolved.xagAnchor ?? "";
+    fields.agAnchor.value = resolved.agAnchor ?? "";
+    fields.xagAnchor.readOnly = active;
+    fields.agAnchor.readOnly = active;
+    form.dataset.anchorMode = resolved.mode;
+    if (contractSelection.mode === "auto" && !effectiveContract()) {
+      resultNodes.market.textContent = contractSelection.error || "暂无有效主力，等待自动主力选出";
+    } else if (!marketAnchor) {
+      resultNodes.market.textContent = contractSelection.mode === "auto"
+        ? "自动主力暂无有效行情锚点"
+        : "指定合约行情暂不可用，保留个人手工锚点";
+    } else if (!active) {
+      resultNodes.market.textContent = contractSelection.mode === "auto"
+        ? "自动主力暂无有效行情锚点"
+        : "指定合约尚无自动快照，可手工填写锚点";
+    } else {
+      const quoteAt = marketAnchor.xagQuoteAt || marketAnchor.agQuoteAt || marketAnchor.fetchedAt;
+      const quoteText = quoteAt ? `报价时间 ${new Date(quoteAt).toLocaleString("zh-CN", { hour12: false })}` : "报价时间未提供";
+      resultNodes.market.textContent = `${contractSelection.mode === "auto" ? "自动主力" : "指定合约"} · 新浪免费行情 · ${quoteText}${marketAnchor.stale || contractSelection.stale ? " · 行情陈旧，保留上次成功值" : ""}`;
+    }
+  }
+
+  function persistenceValues() {
+    const values = currentValues();
+    return {
+      ...values,
+      mode: activeMode(),
+      contract: activeMode() === "manual" ? values.contract : personalSettings.contract,
+      xagAnchor: form.dataset.anchorMode === "market" ? personalSettings.xagAnchor ?? "" : values.xagAnchor,
+      agAnchor: form.dataset.anchorMode === "market" ? personalSettings.agAnchor ?? "" : values.agAnchor,
+    };
   }
 
   function setSyncState(state, text) {
@@ -147,13 +262,17 @@ export function initSilverTargetCalculator({ root = document, apiFetch = null, d
     resultNodes.move.textContent = "—";
     resultNodes.points.textContent = "—";
     resultNodes.ratio.textContent = "—";
-    resultNodes.contract.textContent = fields.contract.value.trim().toUpperCase() || "AG";
+    resultNodes.contract.textContent = effectiveContract() || "等待自动主力";
     resultNodes.state.dataset.direction = "flat";
   }
 
   function render({ reportErrors = false } = {}) {
     const values = currentValues();
     resultNodes.error.hidden = true;
+    if (activeMode() === "auto" && !effectiveContract()) {
+      clearResult();
+      return null;
+    }
     const requiredComplete = [values.xagAnchor, values.agAnchor, values.xagTarget].every((value) => String(value).trim());
     if (!requiredComplete) {
       clearResult();
@@ -161,7 +280,7 @@ export function initSilverTargetCalculator({ root = document, apiFetch = null, d
     }
     try {
       const result = calculateSilverTarget(values);
-      resultNodes.contract.textContent = values.contract.trim().toUpperCase() || "AG";
+      resultNodes.contract.textContent = effectiveContract() || "等待自动主力";
       resultNodes.target.textContent = numberFormat.format(Math.round(result.agTarget));
       resultNodes.range.textContent = `${numberFormat.format(Math.round(result.rangeLow))} – ${numberFormat.format(Math.round(result.rangeHigh))}`;
       resultNodes.move.textContent = formatSignedPercent(result.changeRate);
@@ -200,7 +319,7 @@ export function initSilverTargetCalculator({ root = document, apiFetch = null, d
     saveTimer = 0;
     if (!cloudReady || !apiFetch) return Promise.resolve(null);
     let settings;
-    try { settings = normalizeSilverSettings(currentValues()); }
+    try { settings = normalizeSilverSettings(persistenceValues()); }
     catch (error) {
       setSyncState("error", "输入有误 · 点击重试");
       resultNodes.error.textContent = error.message;
@@ -228,8 +347,8 @@ export function initSilverTargetCalculator({ root = document, apiFetch = null, d
     saveTimer = setTimeout(flushSave, immediate ? 0 : debounceMs);
   }
 
-  async function connect() {
-    if (cloudReady) return true;
+  async function connect({ refresh = false } = {}) {
+    if (cloudReady && !refresh) return true;
     if (!apiFetch) {
       setSyncState("offline", "云端同步不可用");
       return false;
@@ -252,6 +371,9 @@ export function initSilverTargetCalculator({ root = document, apiFetch = null, d
       }
       settings ||= normalizeSilverSettings({});
       applySettings(settings);
+      applyContractSelection(payload.contractSelection || { mode: settings.mode, manualContract: settings.contract });
+      marketAnchor = payload.marketAnchor || null;
+      renderMarketAnchorState();
       render();
       clearLegacyInputs();
       lastFingerprint = settingsFingerprint(settings);
@@ -277,6 +399,9 @@ export function initSilverTargetCalculator({ root = document, apiFetch = null, d
     connectPromise = null;
     clearTimeout(saveTimer);
     form.reset();
+    marketAnchor = null;
+    personalSettings = normalizeSilverSettings({});
+    applyContractSelection({ mode: "auto" });
     fields.tolerancePercent.value = String(DEFAULT_TOLERANCE_PERCENT);
     render();
     setSyncState("offline", "登录后云同步");
@@ -285,7 +410,7 @@ export function initSilverTargetCalculator({ root = document, apiFetch = null, d
   function open() {
     overlay.hidden = false;
     document.body.classList.add("silver-target-open");
-    if (!cloudReady) connect();
+    connect({ refresh: true });
     const firstEmpty = [fields.xagAnchor, fields.agAnchor, fields.xagTarget].find((field) => !field.value);
     (firstEmpty || fields.xagTarget).focus();
     render();
@@ -299,12 +424,42 @@ export function initSilverTargetCalculator({ root = document, apiFetch = null, d
   }
 
   try { applySettings(readLegacyInputs()); } catch { applySettings({}); }
+  applyContractSelection({ mode: personalSettings.mode, manualContract: personalSettings.contract });
   render();
   setSyncState("offline", "登录后云同步");
 
   trigger.addEventListener("click", open);
   byId("silverTargetClose").addEventListener("click", close);
-  form.addEventListener("input", () => { render(); scheduleSave(); });
+  form.addEventListener("input", (event) => {
+    if (event.target === fields.contractAuto || event.target === fields.contractManual) return;
+    const wasMarketAnchor = form.dataset.anchorMode === "market";
+    const values = currentValues();
+    if (wasMarketAnchor) {
+      values.xagAnchor = personalSettings.xagAnchor ?? "";
+      values.agAnchor = personalSettings.agAnchor ?? "";
+    }
+    if (event.target === fields.contract && activeMode() === "manual") {
+      contractSelection = normalizeContractSelection({ ...contractSelection, mode: "manual", manualContract: fields.contract.value }, personalSettings);
+    }
+    try { personalSettings = normalizeSilverSettings({ ...values, mode: activeMode(), contract: activeMode() === "manual" ? values.contract : personalSettings.contract }); } catch {}
+    render();
+    scheduleSave();
+  });
+  fields.contractAuto.addEventListener("change", () => {
+    if (!fields.contractAuto.checked) return;
+    applyContractSelection({ ...contractSelection, mode: "auto" });
+    renderMarketAnchorState();
+    render();
+    scheduleSave({ immediate: true });
+  });
+  fields.contractManual.addEventListener("change", () => {
+    if (!fields.contractManual.checked) return;
+    applyContractSelection({ ...contractSelection, mode: "manual", manualContract: personalSettings.contract || contractSelection.manualContract });
+    renderMarketAnchorState();
+    render();
+    scheduleSave({ immediate: true });
+    fields.contract.focus();
+  });
   form.addEventListener("submit", (event) => {
     event.preventDefault();
     render({ reportErrors: true });
@@ -313,7 +468,11 @@ export function initSilverTargetCalculator({ root = document, apiFetch = null, d
   byId("silverTargetReset").addEventListener("click", () => {
     clearTimeout(saveTimer);
     form.reset();
+    personalSettings = normalizeSilverSettings({});
+    marketAnchor = null;
+    applyContractSelection({ mode: "auto" });
     fields.tolerancePercent.value = String(DEFAULT_TOLERANCE_PERCENT);
+    renderMarketAnchorState();
     clearLegacyInputs();
     render();
     if (cloudReady) {

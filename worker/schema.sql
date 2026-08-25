@@ -22,6 +22,39 @@ CREATE TABLE IF NOT EXISTS silver_target_settings (
   updated_at TEXT NOT NULL
 );
 
+-- Shared, validated market quotes. Personal settings above are never overwritten by this feed.
+CREATE TABLE IF NOT EXISTS silver_market_anchors (
+  contract TEXT PRIMARY KEY CHECK (contract GLOB 'AG[0-9][0-9][0-9][0-9]'),
+  xag_anchor REAL NOT NULL CHECK (xag_anchor > 0),
+  ag_anchor REAL NOT NULL CHECK (ag_anchor > 0),
+  xag_quote_at TEXT NOT NULL,
+  ag_quote_at TEXT NOT NULL,
+  fetched_at TEXT NOT NULL,
+  source TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+-- Per-account contract selection. Missing legacy rows deliberately resolve from
+-- silver_target_settings: a valid old contract means manual, otherwise auto.
+CREATE TABLE IF NOT EXISTS silver_target_contract_preferences (
+  login TEXT PRIMARY KEY,
+  mode TEXT NOT NULL CHECK (mode IN ('auto', 'manual')),
+  updated_at TEXT NOT NULL
+);
+
+-- One global, monotonic AG main-contract state. The hour-bucket fields make
+-- repeated Cron deliveries and concurrent retries idempotent.
+CREATE TABLE IF NOT EXISTS silver_ag_main_contract_state (
+  singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+  current_contract TEXT CHECK (current_contract IS NULL OR current_contract GLOB 'AG[0-9][0-9][0-9][0-9]'),
+  candidate_contract TEXT CHECK (candidate_contract IS NULL OR candidate_contract GLOB 'AG[0-9][0-9][0-9][0-9]'),
+  candidate_hour_count INTEGER NOT NULL DEFAULT 0 CHECK (candidate_hour_count >= 0),
+  candidate_last_hour_bucket TEXT,
+  selected_at TEXT,
+  observed_at TEXT,
+  error TEXT
+);
+
 CREATE TABLE IF NOT EXISTS audit_log (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   trade_id TEXT,

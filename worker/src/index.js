@@ -3,6 +3,7 @@ import { handleAccessHistoryRequest } from "./access-history.js";
 import { handleArticleRequest } from "./articles.js";
 import { permanentlyDeleteTrade, purgeExpiredTrades, trashPurgeAt } from "./trash.js";
 import { handleSilverTargetSettings } from "./silver-target-settings.js";
+import { syncSilverMarketAnchors } from "./silver-market-anchor.js";
 
 const encoder = new TextEncoder();
 const SESSION_TTL_SECONDS = 60 * 60 * 24 * 30;
@@ -453,6 +454,7 @@ export default {
   },
   scheduled(controller, env, ctx) {
     const scheduledAt = new Date(Number.isFinite(controller?.scheduledTime) ? controller.scheduledTime : Date.now());
-    ctx.waitUntil(withD1Retry(() => purgeExpiredTrades(env.DB, scheduledAt)));
+    ctx.waitUntil(withD1Retry(() => purgeExpiredTrades(env.DB, scheduledAt)).catch((error) => console.warn("trade_trash_purge", { outcome: "failed", reason: error?.message || "unknown" })));
+    ctx.waitUntil(syncSilverMarketAnchors(env.DB, scheduledAt, { fetchImpl: env.SINA_FETCH || fetch }).catch((error) => console.warn("silver_market_anchor", { outcome: "failed", reason: error?.message || "unknown" })));
   },
 };
