@@ -2,7 +2,7 @@ import { buildEquityChartModel, formatEquityAxisValue, formatEquityDateLabel, re
 import { buildEvidenceCarouselState } from "./evidence-carousel.js?v=20260721-1";
 import { clearAttachmentCache, loadAttachmentBlob, removeAttachmentFromCache } from "./attachment-cache.js?v=20260804-1";
 import { paginateLedgerRows } from "./ledger-pagination.js?v=20260729-1";
-import { initArticles } from "./articles.js?v=20260812-3";
+import { initArticles } from "./articles.js?v=20260829-2";
 import { safeReturnHash, tokenNeedsRefresh } from "./session.js?v=20260804-1";
 import { calculateTradeStats } from "./trade-stats.js?v=20260821-1";
 import { initSilverTargetCalculator } from "./silver-target.js?v=20260823-2";
@@ -934,6 +934,7 @@ import { initSilverTargetCalculator } from "./silver-target.js?v=20260823-2";
         <aside class="workspace-panel workspace-summary"><div class="summary-label">TRADE SNAPSHOT</div><div class="workspace-result"><span>净盈亏</span><b class="${signedClass(trade.netPnl)}">¥${money(trade.netPnl)}</b><small>${esc(trade.result)} · ${num(trade.points)} 点</small></div>
           <dl class="workspace-facts"><div><dt>开仓</dt><dd>${esc(trade.entryTime)} · ${trade.entryQty}手</dd><small>加权价 ${num(trade.entryPrice)}</small></div><div><dt>平仓</dt><dd>${esc(trade.exitTime)} · ${trade.exitQty}手</dd><small>加权价 ${num(trade.exitPrice)}</small></div><div><dt>持仓时长</dt><dd>${esc(trade.holdingLabel)}</dd></div><div><dt>毛盈亏</dt><dd class="${signedClass(trade.grossPnl)}">¥${money(trade.grossPnl)}</dd></div><div><dt>手续费</dt><dd>¥${money(trade.fees)}</dd></div><div><dt>计划风险</dt><dd>${trade.plannedRisk != null ? `¥${money(trade.plannedRisk)}` : "待补充"}</dd></div><div><dt>实际风险</dt><dd>${trade.actualRisk != null ? `¥${money(trade.actualRisk)}` : "待补充"}</dd></div><div><dt>计划 R</dt><dd class="${signedClass(trade.plannedR)}">${trade.plannedR != null ? `${num(trade.plannedR)} R` : "待计算"}</dd><small>净盈亏 ÷ 计划风险</small></div><div><dt>实际 R</dt><dd class="${signedClass(trade.actualR)}">${trade.actualR != null ? `${num(trade.actualR)} R` : "待计算"}</dd><small>净盈亏 ÷ 实际风险</small></div></dl>
         </aside>
+        <section class="workspace-panel workspace-journal"><header><div><small>LINKED RESEARCH</small><h2>关联手记</h2></div><button class="ghost-button" id="writeTradeJournal" type="button">写入手记</button></header><p>把这笔成交作为可回看的正文证据；已有关联会显示在下方。</p><div class="workspace-journal-links" id="tradeRelatedArticles"><span>正在读取关联…</span></div></section>
         <section class="workspace-panel workspace-review"><div class="review-heading"><div><span>REVIEW NOTES</span><h2>完整复盘</h2></div><p>填写后点击页面顶部“保存复盘”，立即同步到所有设备。</p></div>
       <form id="annotationForm"><div class="edit-grid">
         <label class="edit-field"><span>交易日期</span><input name="date" type="date" value="${esc(trade.date || "")}"></label>
@@ -958,6 +959,25 @@ import { initSilverTargetCalculator } from "./silver-target.js?v=20260823-2";
     document.querySelector(".workspace-evidence").scrollTop = nextEvidenceScroll;
     document.querySelector(".workspace-review-rail").scrollTop = nextReviewScroll;
     if (wasHidden) $("workspaceBack").focus();
+    $("writeTradeJournal").addEventListener("click", async () => {
+      hideTradeWorkspace({ restoreFocus: false, restoreScroll: false });
+      try { await articles.createFromTrade(trade); }
+      catch (error) { notify(error.message, true); }
+    });
+    articles.articlesForTrade(trade.tradeId).then((rows) => {
+      const host = $("tradeRelatedArticles");
+      if (!host) return;
+      host.innerHTML = rows.length
+        ? rows.map((article) => `<button type="button" data-related-article="${esc(article.id)}"><b>${esc(article.title)}</b><span>${esc(article.status === "final" ? "已整理" : "草稿")} · ${esc(article.visibility === "public" ? "公开" : "私密")}</span></button>`).join("")
+        : "<span>尚无手记引用这笔交易。</span>";
+      host.querySelectorAll("[data-related-article]").forEach((button) => button.addEventListener("click", async () => {
+        hideTradeWorkspace({ restoreFocus: false, restoreScroll: false });
+        try { await articles.open(button.dataset.relatedArticle); }
+        catch (error) { notify(error.message, true); }
+      }));
+    }).catch((error) => {
+      if ($("tradeRelatedArticles")) $("tradeRelatedArticles").innerHTML = `<span>${esc(error.message || "关联手记读取失败")}</span>`;
+    });
     const showEvidence = (requestedIndex) => {
       const state = buildEvidenceCarouselState(attachments, requestedIndex);
       evidenceCarouselIndex = state.activeIndex;

@@ -16,7 +16,8 @@
     {
       "binding": "DB",
       "database_name": "trade-review",
-      "database_id": "cefdfb3b-019a-448c-a75d-a35cf2425a77"
+      "database_id": "cefdfb3b-019a-448c-a75d-a35cf2425a77",
+      "migrations_dir": "worker/migrations"
     }
   ]
 }

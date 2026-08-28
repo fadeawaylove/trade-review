@@ -14,7 +14,7 @@
   <link rel="stylesheet" href="./styles.css?v=20260821-2">
   <link rel="stylesheet" href="./readability.css?v=20260822-1">
   <link rel="stylesheet" href="./vendor/vditor/dist/index.css?v=3.11.2">
-  <link rel="stylesheet" href="./articles.css?v=20260812-3">
+  <link rel="stylesheet" href="./articles.css?v=20260829-2">
   <link rel="stylesheet" href="./silver-target.css?v=20260823-2">
 </head>
 <body>
@@ -143,32 +143,28 @@
 
       <section class="articles-section" id="articlesSection" hidden>
         <header class="journal-header">
-          <button class="journal-brand" id="journalHomeButton" type="button" aria-label="返回手记首页">
-            <span class="journal-brand-avatar" aria-hidden="true"><img id="journalBrandAvatar" alt=""><b id="journalBrandFallback">我</b></span>
-            <span class="journal-brand-wordmark"><strong>手记</strong><small>PRIVATE JOURNAL</small></span>
+          <button class="journal-brand" id="journalHomeButton" type="button" aria-label="返回研究手记工作台">
+            <span class="journal-brand-mark" aria-hidden="true">研</span>
+            <span class="journal-brand-wordmark"><strong>研究手记</strong><small>PRIVATE RESEARCH ARCHIVE</small></span>
           </button>
           <nav class="journal-nav" aria-label="手记导航">
-            <button id="journalHomeNavButton" type="button" aria-current="page">首页</button>
-            <button id="journalArticlesButton" type="button">文章</button>
+            <button id="journalHomeNavButton" type="button" aria-current="page">工作台</button>
+            <button id="journalArticlesButton" type="button">文章库</button>
             <button id="journalTagsButton" type="button">主题</button>
             <button id="journalArchiveButton" type="button">归档</button>
-            <button id="journalAboutButton" type="button">关于</button>
+            <button id="journalAboutButton" type="button">说明</button>
           </nav>
           <div class="journal-actions">
-            <button class="journal-search-button" id="journalSearchButton" type="button">搜索</button>
+            <a class="journal-public-link" id="journalPublicButton" href="#" target="_blank" rel="noopener noreferrer">公开博客</a>
+            <button class="journal-search-button" id="journalSearchButton" type="button">查找</button>
             <button class="journal-trades-button" id="journalTradesButton" type="button">交易复盘</button>
             <button id="tradesSectionButton" type="button" hidden>复盘台</button>
-            <button class="journal-write-button" id="journalWriteButton" type="button">写文章</button>
+            <button class="journal-write-button" id="journalWriteButton" type="button">新建手记</button>
             <details class="journal-account" id="journalAccount">
-              <summary aria-label="打开手记管理菜单"><span id="journalUserInitial">我</span></summary>
+              <summary aria-label="打开手记管理菜单">管理 <span id="journalUserInitial">我</span></summary>
               <div class="journal-account-menu">
                 <div class="article-command-bar" id="articleRailControls">
                   <header><strong>文章管理</strong><span id="journalUserName"></span></header>
-                  <label><span>搜索</span><input id="articleSearch" type="search" placeholder="标题、摘要或标签"></label>
-                  <div class="journal-filter-row">
-                    <label><span>状态</span><select id="articleStatusFilter"><option value="">全部状态</option><option value="draft">草稿</option><option value="final">已整理</option></select></label>
-                    <label><span>标签</span><select id="articleTagFilter"><option value="">全部标签</option></select></label>
-                  </div>
                   <button class="primary-button full" id="newArticleButton" type="button">新建文章</button>
                   <label class="ghost-button full article-import">导入 Markdown<input id="articleImportInput" type="file" accept=".md,.markdown,text/markdown,text/plain"></label>
                   <button class="ghost-button full" id="articleTrashButton" type="button">文章回收站</button>
@@ -181,16 +177,32 @@
 
         <div class="journal-home" id="articleHome">
           <main class="journal-feed">
-            <section class="journal-intro" id="journalIntro">
-              <span class="journal-profile-avatar" aria-hidden="true"><img id="journalProfileAvatar" alt=""><b id="journalProfileFallback">我</b></span>
-              <div><p class="journal-kicker">THE EDITOR'S DESK</p><h1>私人编辑部</h1><p>只记录值得反复推敲的交易、思考与生活。</p><small id="journalStats">正在整理手记…</small></div>
+            <section class="journal-workbench" id="journalIntro" aria-labelledby="journalWorkbenchTitle">
+              <header class="journal-workbench-heading">
+                <div><p class="journal-kicker">PRIVATE RESEARCH ARCHIVE</p><h1 id="journalWorkbenchTitle">内容工作台</h1></div>
+                <p>把交易证据、复盘结论与仍待验证的问题整理成可检索的长期档案。</p>
+              </header>
+              <div class="journal-query-bar" role="search">
+                <label class="journal-query-field"><span>搜索手记</span><input id="articleSearch" type="search" placeholder="搜索标题、摘要、标签或正文" autocomplete="off"></label>
+                <label><span>状态</span><select id="articleStatusFilter"><option value="">全部状态</option><option value="draft">草稿</option><option value="final">已整理</option></select></label>
+                <label><span>公开性</span><select id="articleVisibilityFilter"><option value="">全部</option><option value="private">私密</option><option value="public">已公开</option></select></label>
+                <label><span>主题</span><select id="articleTagFilter"><option value="">全部主题</option></select></label>
+                <button class="journal-filter-reset" id="articleFilterReset" type="button">清除筛选</button>
+              </div>
+              <p class="journal-filter-summary" id="journalFilterSummary" aria-live="polite">正在读取档案…</p>
+              <div class="journal-vitals" aria-label="手记状态概览">
+                <article><span>全部档案</span><strong id="journalTotalCount">0</strong><small id="journalStats">正在同步</small></article>
+                <article><span>待整理</span><strong id="journalDraftCount">0</strong><small>仍可继续推敲</small></article>
+                <article><span>待发布</span><strong id="journalPendingCount">0</strong><small>首次发布或已有新修改</small></article>
+                <article><span>公开快照</span><strong id="journalPublicCount">0</strong><small>与工作副本分离</small></article>
+                <article><span>最近更新</span><strong class="journal-vital-date" id="journalLastUpdated">—</strong><small>按工作副本时间</small></article>
+              </div>
             </section>
             <div class="journal-home-grid" id="journalHomeGrid">
               <div class="journal-main-column">
-                <section class="journal-feature" id="articleFeature" aria-label="本期推荐"></section>
                 <section class="journal-recent" id="journalRecent" aria-labelledby="journalRecentTitle">
                   <header class="journal-section-heading">
-                    <div><p>RECENT NOTES</p><h2 id="journalRecentTitle">最近手记</h2></div>
+                    <div><p>WORKING ARCHIVE</p><h2 id="journalRecentTitle">最近更新</h2></div>
                     <div class="article-list-caption"><strong id="articleListCount">0 篇</strong><span id="articleListMode">按更新时间排序</span></div>
                   </header>
                   <div class="article-list" id="articleList"></div>
@@ -199,14 +211,14 @@
               <aside class="journal-sidebar" aria-label="手记索引">
                 <section><h2>主题</h2><div class="journal-topic-list" id="journalTopicList"></div><button class="journal-text-link" id="journalAllTopicsButton" type="button">查看全部主题</button></section>
                 <section><h2>归档</h2><div class="journal-archive-list" id="journalArchiveList"></div><button class="journal-text-link" id="journalAllArchiveButton" type="button">查看全部归档</button></section>
-                <blockquote><p>市场从不缺机会，缺的是耐心与纪律。</p><footer>— 写于复盘之后</footer></blockquote>
+                <section class="journal-method-note"><h2>归档原则</h2><p>工作副本持续演进；只有手动建立的发布快照会进入公开博客。</p></section>
               </aside>
             </div>
             <section class="journal-index-view" id="journalIndexView" hidden></section>
             <section class="journal-about" id="journalAbout" hidden>
-              <p class="journal-kicker">ABOUT THIS JOURNAL</p>
-              <h2>写给未来的自己。</h2>
-              <p>这里收纳交易系统、价格行为、心理复盘与生活片段。文章只服务于回看与沉淀，不追逐更新频率，也不迎合算法。</p>
+              <p class="journal-kicker">ARCHIVE PROTOCOL</p>
+              <h2>先保存研究，再选择公开。</h2>
+              <p>私密工作副本用于持续复盘；检查点用于保留阶段结论；公开博客只读取手动发布的不可变快照。</p>
             </section>
           </main>
         </div>
@@ -217,6 +229,7 @@
             <div id="articleReader" hidden>
               <button class="article-reader-back" id="articleReaderBack" type="button">返回文章</button>
               <div class="article-reader-toolbar">
+                <a class="ghost-button" id="articlePublicViewButton" href="#" target="_blank" rel="noopener noreferrer" hidden>查看公开版本</a>
                 <button class="ghost-button" id="articleEditButton" type="button">编辑</button>
                 <button class="ghost-button" id="articleDownloadButton" type="button">导出 .md</button>
                 <button class="ghost-button" id="articleHistoryButton" type="button">版本历史</button>
@@ -225,8 +238,10 @@
               <header class="article-reader-header">
                 <p class="eyebrow" id="articleReaderStatus"></p>
                 <h1 id="articleReaderTitle"></h1>
+                <p class="article-reader-summary" id="articleReaderSummary" hidden></p>
                 <div class="article-meta" id="articleReaderMeta"></div>
                 <div class="article-tags" id="articleReaderTags"></div>
+                <figure class="article-reader-cover" id="articleReaderCover" hidden><img id="articleReaderCoverImage" alt=""></figure>
               </header>
               <div class="article-reader-body" id="articleReaderBody">
                 <aside class="article-toc" id="articleToc" aria-labelledby="articleTocTitle" hidden>
@@ -239,24 +254,32 @@
             </div>
             <form id="articleEditor" role="dialog" aria-modal="true" aria-labelledby="articleEditorHeading" hidden>
               <header class="article-writing-toolbar">
-                <button class="article-writing-back" id="articleCancelButton" type="button">返回随笔</button>
+                <button class="article-writing-back" id="articleCancelButton" type="button">返回档案</button>
                 <div class="article-writing-identity">
-                  <span>PRIVATE JOURNAL</span>
-                  <strong id="articleEditorHeading">编辑随笔</strong>
+                  <span>RESEARCH DRAFT</span>
+                  <strong id="articleEditorHeading">编辑手记</strong>
                 </div>
                 <span class="article-save-state" id="articleSaveState" aria-live="polite">尚未保存</span>
                 <div class="article-writing-actions">
-                  <label class="article-status-control"><span>状态</span><select id="articleStatusInput" aria-label="随笔状态"><option value="draft">草稿</option><option value="final">已整理</option></select></label>
+                  <div class="article-view-switch" role="group" aria-label="编辑器视图">
+                    <button id="articleWriteViewButton" type="button" data-editor-view="write" aria-pressed="true">写作</button>
+                    <button id="articlePreviewViewButton" type="button" data-editor-view="preview" aria-pressed="false">预览</button>
+                    <button class="article-split-view-button" id="articleSplitViewButton" type="button" data-editor-view="split" aria-pressed="false">并排</button>
+                  </div>
+                  <button class="ghost-button" id="articleSettingsButton" type="button" aria-expanded="false" aria-controls="articleSettingsDrawer">设置</button>
+                  <button class="ghost-button" id="articleCheckpointButton" type="button">建立检查点</button>
+                  <button class="journal-publish-button" id="articlePublishButton" type="button">发布</button>
+                  <button class="ghost-button" id="articleUnpublishButton" type="button" hidden>取消公开</button>
                   <button class="primary-button" id="articleSaveButton" type="submit">立即保存</button>
                 </div>
               </header>
               <div class="article-writing-shell">
-                <main class="article-document-canvas">
+                <main class="article-document-canvas" id="articleDocumentCanvas" data-view="write">
                   <section class="article-source-pane" aria-label="Markdown 书写区">
-                    <div class="article-pane-heading"><strong>Markdown 原文</strong><span>左侧书写</span></div>
+                    <div class="article-pane-heading"><strong>工作副本</strong><span>自动保存，不影响公开快照</span></div>
                     <label class="article-title-field">
                       <span class="sr-only">标题</span>
-                      <input id="articleTitleInput" maxlength="120" placeholder="无标题随笔" required>
+                      <input id="articleTitleInput" maxlength="120" placeholder="为这项研究命名" required>
                     </label>
                     <div class="article-vditor" id="articleContentEditor" aria-label="Markdown 正文编辑器"></div>
                     <section class="article-trade-toolbar-popover" id="articleTradePopover" role="dialog" aria-label="插入交易" hidden>
@@ -266,19 +289,28 @@
                     </section>
                   </section>
                   <section class="article-preview-pane" aria-label="实时预览区">
-                    <div class="article-pane-heading"><strong>文章预览</strong><span>输入即更新</span></div>
+                    <div class="article-pane-heading"><strong>阅读预览</strong><span>输入即更新</span></div>
                     <article class="article-preview-document">
-                      <h1 id="articlePreviewTitle">无标题随笔</h1>
+                      <h1 id="articlePreviewTitle" tabindex="-1">未命名研究</h1>
                       <div class="article-editor-preview article-markdown" id="articleEditorPreview" aria-label="Markdown 实时预览"></div>
                     </article>
                   </section>
                 </main>
-                <div class="article-editor-hidden-fields" hidden>
-                  <input id="articleTagsInput" aria-label="随笔标签">
-                  <input id="articleImageInput" type="file" accept="image/png,image/jpeg,image/webp" multiple>
-                  <div id="articleImages"></div>
-                </div>
               </div>
+              <button class="article-settings-scrim" id="articleSettingsScrim" type="button" aria-label="关闭文章设置" hidden></button>
+              <aside class="article-settings-drawer" id="articleSettingsDrawer" aria-labelledby="articleSettingsTitle" hidden>
+                <header><div><small>DOCUMENT CONTROL</small><h2 id="articleSettingsTitle">文章设置</h2></div><button id="articleSettingsClose" type="button" aria-label="关闭文章设置">×</button></header>
+                <div class="article-settings-fields">
+                  <label><span>摘要</span><textarea id="articleSummaryInput" maxlength="320" rows="4" placeholder="用一段话说明问题、证据与结论"></textarea><small>用于工作台检索与公开博客摘要。</small></label>
+                  <label><span>主题标签</span><input id="articleTagsInput" placeholder="例如：风险管理，移动止损"><small>使用中文或英文逗号分隔，最多 20 个。</small></label>
+                  <label><span>公开地址</span><span class="article-slug-field"><b>/posts/</b><input id="articleSlugInput" maxlength="96" placeholder="risk-control-notes" pattern="[a-z0-9]+(?:-[a-z0-9]+)*"></span><small id="articleSlugHint">发布后地址锁定。</small></label>
+                  <label><span>状态</span><select id="articleStatusInput" aria-label="手记状态"><option value="draft">草稿</option><option value="final">已整理</option></select></label>
+                  <label><span>公开性</span><select id="articleVisibilityInput"><option value="private">私密工作副本</option><option value="public">已发布快照</option></select><small>公开内容由“发布”生成快照；普通保存只更新工作副本。</small></label>
+                  <label><span>封面证据</span><select id="articleCoverInput"><option value="">不设置封面</option></select><small>仅使用本篇已上传的真实图片，不使用库存封面。</small></label>
+                </div>
+                <section class="article-publication-state" aria-labelledby="articlePublicationTitle"><h3 id="articlePublicationTitle">发布状态</h3><p id="articlePublicationState" aria-live="polite">尚未发布</p></section>
+                <section class="article-assets"><header><h3>图片资产</h3><label class="ghost-button article-image-upload">上传图片<input id="articleImageInput" type="file" accept="image/png,image/jpeg,image/webp" multiple></label></header><div id="articleImages"></div></section>
+              </aside>
             </form>
             <aside class="article-history" id="articleHistory" hidden>
               <div class="article-history-head"><div><small>VERSION HISTORY</small><h2>版本历史</h2></div><button id="articleHistoryClose" type="button" aria-label="关闭版本历史">×</button></div>
@@ -397,9 +429,9 @@
   </div>
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
-  <script src="./config.js?v=20260812-1"></script>
+  <script src="./config.js?v=20260829-2"></script>
   <script src="./vendor/vditor/dist/js/icons/ant.js?v=3.11.2"></script>
   <script src="./vendor/vditor/dist/index.min.js?v=3.11.2"></script>
-  <script type="module" src="./app.js?v=20260823-2"></script>
+  <script type="module" src="./app.js?v=20260829-2"></script>
 </body>
 </html>

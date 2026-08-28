@@ -6,7 +6,9 @@
 
 点击交易记录会在当前标签页打开全屏复盘空间。桌面端重点展示大幅图表证据与交易摘要，复盘表单位于下方；支持前一笔、后一笔、浏览器返回和固定保存入口，返回总览后保留筛选与滚动位置。
 
-站点包含独立的私有 Markdown 随笔板块。随笔正文、历史版本、图片和关联交易均保存在 D1；支持导入与导出 `.md`、草稿与已整理状态、标签筛选、软删除恢复，以及从随笔和交易复盘两侧相互跳转。Markdown 渲染默认不执行原生 HTML，外部图片不会直接嵌入。
+站点包含独立的私有 Markdown 写作工作台。工作副本、显式检查点、图片和关联交易均保存在 D1；支持导入与导出 `.md`、标签筛选、软删除恢复，以及从手记和交易复盘两侧相互跳转。Markdown 渲染默认不执行原生 HTML，外部图片不会直接嵌入。
+
+`journal/` 是独立部署到 Cloudflare Workers 的 Astro SSR 公开手记。它只读取当前发布快照，不提供私密 JSON 接口；未发布修改、审计记录、登录身份、交易编号和未被当前快照引用的图片都不会进入公开响应。
 
 站点提供与页面 TR 印章一致的 SVG 标签页图标、PNG 兼容图标、Apple Touch 图标及 Web App Manifest。
 
@@ -25,17 +27,20 @@
 
 - `docs/`：GitHub Pages 前端；
 - `worker/src/index.js`：身份验证及交易 API；
-- `worker/schema.sql`：D1 数据库结构；
+- `worker/schema.sql`：当前 D1 结构参考与测试基准，不作为部署入口；
+- `worker/migrations/`：新库与已上线数据库统一使用的有序迁移；
+- `journal/`：Astro SSR 公开手记 Worker；
 - `wrangler.jsonc`：Cloudflare Worker 配置；
 - `.github/workflows/pages.yml`：GitHub Pages 自动部署。
 
 ## 部署顺序
 
-1. 创建 D1 数据库并把数据库 ID 写入 `wrangler.jsonc`；
-2. 执行 `worker/schema.sql`；
+1. 创建 D1 数据库并把数据库 ID 写入两个 Worker 的 Wrangler 配置；不要预先执行 `worker/schema.sql`；
+2. 使用 Node.js 22.12.0 或更高版本，运行 `npm --prefix cloud ci` 与 `npm --prefix cloud/journal ci` 安装两处锁定依赖；
 3. 配置 `GITHUB_CLIENT_ID`、`GITHUB_CLIENT_SECRET`、`JWT_SECRET`；
-4. 日常发布使用仓库根目录的 `npm run publish:cloud`，不会触碰 D1 结构；只有修改 `worker/schema.sql` 时才使用 `npm run publish:cloud:schema`。
-4. 部署 Worker；
-5. 将 Worker URL 写入 `docs/config.js`；
-6. 推送到 GitHub，触发 Pages 部署；
-7. 使用本地生成的临时 seed SQL 初始化 D1。
+4. 在仓库根目录运行 `npm run publish:cloud`；发布器会应用尚未执行的 D1 migration；
+5. 发布器依次部署私密 API Worker、公开手记 Worker，并将 `docs/` 同步至 Pages 部署仓库；
+6. 首次部署后将 API Worker URL 写入 `docs/config.js`，按需为公开手记绑定自定义域名；
+7. 新库和日常升级都只运行 `wrangler d1 migrations apply`（发布器会自动执行）；`worker/schema.sql` 仅用于结构参考和测试，不得在 migrations 前执行。
+
+`npm run check:publish` 只执行本地依赖/构建检查并只读克隆 Pages 部署仓库；它不会运行远程 D1 migration、部署 Worker、提交或推送。Pages 同步会递归排除 `journal/`、`node_modules/`、Wrangler 本地状态、私有配置和任何 seed SQL。

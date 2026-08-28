@@ -82,6 +82,7 @@ export async function permanentlyDeleteTrade(db, tradeId, now = new Date()) {
       "UPDATE article_versions SET trade_ids_json = COALESCE((SELECT json_group_array(value) FROM json_each(article_versions.trade_ids_json) WHERE value <> ?1), '[]') WHERE EXISTS (SELECT 1 FROM json_each(article_versions.trade_ids_json) WHERE value = ?1)",
     ).bind(tradeId),
     db.prepare("DELETE FROM article_trade_links WHERE trade_id = ?1").bind(tradeId),
+    db.prepare("DELETE FROM article_trade_links_derived WHERE trade_id = ?1").bind(tradeId),
     db.prepare("DELETE FROM audit_log WHERE trade_id = ?1").bind(tradeId),
     db.prepare("DELETE FROM deleted_trades WHERE trade_id = ?1").bind(tradeId),
   ]);

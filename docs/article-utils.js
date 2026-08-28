@@ -21,6 +21,101 @@ export function preserveUnchangedMarkdown(storedMarkdown, editorBaseline, editor
   return current === String(editorBaseline ?? "") ? String(storedMarkdown ?? "") : current;
 }
 
+export function articlePublicationProgress(article) {
+  const publishedRevision = Number(article?.publishedRevision) || 0;
+  const revision = Number(article?.revision) || 0;
+  if (article?.status === "final" && !publishedRevision) return "pending-first";
+  if (publishedRevision && revision > publishedRevision) return "pending-update";
+  return "";
+}
+
+export function needsArticlePublishing(article) {
+  return Boolean(articlePublicationProgress(article));
+}
+
+function markdownLines(value) {
+  const normalized = String(value ?? "").replace(/\r\n?/g, "\n");
+  return normalized ? normalized.split("\n") : [];
+}
+
+function withLineNumbers(operations) {
+  let beforeLine = 1;
+  let afterLine = 1;
+  return operations.map((operation) => {
+    const numbered = {
+      ...operation,
+      beforeLine: operation.type === "insert" ? null : beforeLine,
+      afterLine: operation.type === "delete" ? null : afterLine,
+    };
+    if (operation.type !== "insert") beforeLine += 1;
+    if (operation.type !== "delete") afterLine += 1;
+    return numbered;
+  });
+}
+
+function backtrackLineDiff(trace, before, after) {
+  let x = before.length;
+  let y = after.length;
+  const operations = [];
+
+  for (let distance = trace.length - 1; distance >= 0; distance -= 1) {
+    const frontier = trace[distance];
+    const diagonal = x - y;
+    const previousDiagonal = diagonal === -distance
+      || (diagonal !== distance && (frontier.get(diagonal - 1) ?? -1) < (frontier.get(diagonal + 1) ?? -1))
+      ? diagonal + 1
+      : diagonal - 1;
+    const previousX = frontier.get(previousDiagonal) ?? 0;
+    const previousY = previousX - previousDiagonal;
+
+    while (x > previousX && y > previousY) {
+      operations.push({ type: "equal", text: before[x - 1] });
+      x -= 1;
+      y -= 1;
+    }
+    if (distance === 0) break;
+    if (x === previousX) {
+      operations.push({ type: "insert", text: after[y - 1] });
+      y -= 1;
+    } else {
+      operations.push({ type: "delete", text: before[x - 1] });
+      x -= 1;
+    }
+  }
+
+  return withLineNumbers(operations.reverse());
+}
+
+export function buildArticleLineDiff(checkpointMarkdown, currentMarkdown) {
+  const before = markdownLines(checkpointMarkdown);
+  const after = markdownLines(currentMarkdown);
+  const maximumDistance = before.length + after.length;
+  const frontier = new Map([[1, 0]]);
+  const trace = [];
+
+  for (let distance = 0; distance <= maximumDistance; distance += 1) {
+    trace.push(new Map(frontier));
+    for (let diagonal = -distance; diagonal <= distance; diagonal += 2) {
+      let x;
+      if (diagonal === -distance
+        || (diagonal !== distance && (frontier.get(diagonal - 1) ?? -1) < (frontier.get(diagonal + 1) ?? -1))) {
+        x = frontier.get(diagonal + 1) ?? 0;
+      } else {
+        x = (frontier.get(diagonal - 1) ?? 0) + 1;
+      }
+      let y = x - diagonal;
+      while (x < before.length && y < after.length && before[x] === after[y]) {
+        x += 1;
+        y += 1;
+      }
+      frontier.set(diagonal, x);
+      if (x >= before.length && y >= after.length) return backtrackLineDiff(trace, before, after);
+    }
+  }
+
+  return [];
+}
+
 export function filterArticleSummaries(rows, { query = "", tag = "", status = "", deleted = false } = {}) {
   const needle = String(query).trim().toLocaleLowerCase("zh-CN");
   return (rows || []).filter((article) => {
@@ -28,7 +123,7 @@ export function filterArticleSummaries(rows, { query = "", tag = "", status = ""
     if (status && article.status !== status) return false;
     if (tag && !(article.tags || []).includes(tag)) return false;
     if (!needle) return true;
-    return [article.title, article.excerpt, ...(article.tags || [])]
+    return [article.title, article.summary, article.excerpt, ...(article.tags || [])]
       .join(" ")
       .toLocaleLowerCase("zh-CN")
       .includes(needle);

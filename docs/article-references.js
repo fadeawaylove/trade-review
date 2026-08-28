@@ -18,6 +18,35 @@ function tradeSequence(tradeId) {
   return match ? Number(match[1]) : -1;
 }
 
+function openingFence(line) {
+  const match = String(line || "").match(/^\s*(`{3,}|~{3,})(.*)$/);
+  return match ? { character: match[1][0], length: match[1].length } : null;
+}
+
+function closesFence(line, fence) {
+  const match = String(line || "").match(/^\s*(`{3,}|~{3,})\s*$/);
+  return Boolean(match && match[1][0] === fence?.character && match[1].length >= fence.length);
+}
+
+export function markdownOutsideCodeAndComments(markdown) {
+  const source = String(markdown || "").replace(/<!--[\s\S]*?-->/g, "");
+  const visible = [];
+  let fence = null;
+  for (const line of source.replace(/\r\n?/g, "\n").split("\n")) {
+    if (fence) {
+      if (closesFence(line, fence)) fence = null;
+      continue;
+    }
+    const opening = openingFence(line);
+    if (opening) {
+      fence = opening;
+      continue;
+    }
+    visible.push(line.replace(/(`+)([^`\n]*?)\1/g, ""));
+  }
+  return visible.join("\n");
+}
+
 export function tradePickerTrades(dashboard) {
   return [...(dashboard?.trades || [])]
     .filter((trade) => trade && !trade.deletedAt)
@@ -30,12 +59,11 @@ export function tradePickerTrades(dashboard) {
 }
 
 export function tradeIdsFromMarkdown(markdown) {
-  const withoutCode = String(markdown || "")
-    .replace(/```[\s\S]*?```/g, "")
-    .replace(/`[^`\n]*`/g, "");
+  const withoutCode = markdownOutsideCodeAndComments(markdown);
   const result = [];
   const seen = new Set();
-  for (const match of withoutCode.matchAll(/\]\(trade:(TR-\d{4,})\)/gi)) {
+  const tradeLinkPattern = /(?<!!)\[[^\]\n]*\]\(\s*trade:(TR-\d{4,})(?:\s+"[^"\n]*")?\s*\)/gi;
+  for (const match of withoutCode.matchAll(tradeLinkPattern)) {
     const tradeId = match[1].toUpperCase();
     if (seen.has(tradeId)) continue;
     seen.add(tradeId);
@@ -47,8 +75,8 @@ export function tradeIdsFromMarkdown(markdown) {
 export function privateArticleImageIds(markdown) {
   const result = [];
   const seen = new Set();
-  const pattern = new RegExp(`!\\[[^\\]]*\\]\\(article-image:(${privateImageIdPattern})\\)`, "gi");
-  for (const match of String(markdown || "").matchAll(pattern)) {
+  const pattern = new RegExp(`!\\[[^\\]]*\\]\\(\\s*article-image:(${privateImageIdPattern})(?=(?:\\s+"[^"\\n]*")?\\s*\\))`, "gi");
+  for (const match of markdownOutsideCodeAndComments(markdown).matchAll(pattern)) {
     const imageId = match[1].toLowerCase();
     if (seen.has(imageId)) continue;
     seen.add(imageId);
@@ -58,10 +86,10 @@ export function privateArticleImageIds(markdown) {
 }
 
 export function replacePrivateArticleImages(markdown, sourcesById) {
-  const pattern = new RegExp(`(!\\[[^\\]]*\\]\\()article-image:(${privateImageIdPattern})(\\))`, "gi");
-  return String(markdown || "").replace(pattern, (reference, prefix, imageId, suffix) => {
+  const pattern = new RegExp(`(!\\[[^\\]]*\\]\\(\\s*)article-image:(${privateImageIdPattern})(?=(?:\\s+"[^"\\n]*")?\\s*\\))`, "gi");
+  return String(markdown || "").replace(pattern, (reference, prefix, imageId) => {
     const localUrl = sourcesById?.get(String(imageId).toLowerCase());
-    return localUrl ? `${prefix}${localUrl}${suffix}` : reference;
+    return localUrl ? `${prefix}${localUrl}` : reference;
   });
 }
 

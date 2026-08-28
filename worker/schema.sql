@@ -147,12 +147,19 @@ CREATE INDEX IF NOT EXISTS idx_deleted_trades_deleted_at ON deleted_trades(delet
 CREATE TABLE IF NOT EXISTS articles (
   id TEXT PRIMARY KEY,
   title TEXT NOT NULL,
+  summary TEXT NOT NULL DEFAULT '',
+  slug TEXT,
   content_md TEXT NOT NULL,
   excerpt TEXT NOT NULL DEFAULT '',
   status TEXT NOT NULL CHECK (status IN ('draft', 'final')),
+  visibility TEXT NOT NULL DEFAULT 'private' CHECK (visibility IN ('private', 'public')),
+  cover_image_id TEXT,
   tags_json TEXT NOT NULL DEFAULT '[]',
   trade_ids_json TEXT NOT NULL DEFAULT '[]',
   revision INTEGER NOT NULL DEFAULT 1,
+  public_search_text TEXT NOT NULL DEFAULT '',
+  published_revision INTEGER,
+  published_at TEXT,
   created_by TEXT NOT NULL,
   updated_by TEXT NOT NULL,
   created_at TEXT NOT NULL,
@@ -162,15 +169,21 @@ CREATE TABLE IF NOT EXISTS articles (
 );
 
 CREATE INDEX IF NOT EXISTS idx_articles_updated_at ON articles(deleted_at, updated_at DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_articles_slug ON articles(slug COLLATE NOCASE) WHERE slug IS NOT NULL AND slug <> '';
+CREATE INDEX IF NOT EXISTS idx_articles_publication ON articles(visibility, deleted_at, published_at DESC);
 
 CREATE TABLE IF NOT EXISTS article_versions (
   article_id TEXT NOT NULL,
   revision INTEGER NOT NULL,
   title TEXT NOT NULL,
+  summary TEXT NOT NULL DEFAULT '',
+  slug TEXT,
   content_md TEXT NOT NULL,
   status TEXT NOT NULL,
+  cover_image_id TEXT,
   tags_json TEXT NOT NULL,
   trade_ids_json TEXT NOT NULL,
+  public_search_text TEXT NOT NULL DEFAULT '',
   created_by TEXT NOT NULL,
   created_at TEXT NOT NULL,
   PRIMARY KEY (article_id, revision),
@@ -203,6 +216,19 @@ CREATE TABLE IF NOT EXISTS article_trade_links (
 
 CREATE INDEX IF NOT EXISTS idx_article_trade_links_trade ON article_trade_links(trade_id, article_id);
 
+-- Authoritative v2 projection derived from Markdown. The legacy table remains
+-- untouched so old caller-provided associations stay auditable but are never read.
+CREATE TABLE IF NOT EXISTS article_trade_links_derived (
+  article_id TEXT NOT NULL,
+  trade_id TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  PRIMARY KEY (article_id, trade_id),
+  FOREIGN KEY (article_id) REFERENCES articles(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_article_trade_links_derived_trade
+  ON article_trade_links_derived(trade_id, article_id);
+
 CREATE TABLE IF NOT EXISTS article_audit_log (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   article_id TEXT NOT NULL,
@@ -213,3 +239,93 @@ CREATE TABLE IF NOT EXISTS article_audit_log (
 );
 
 CREATE INDEX IF NOT EXISTS idx_article_audit_created_at ON article_audit_log(article_id, created_at DESC);
+
+-- Separate projections prevent private working-copy edits from leaking into
+-- public search before the editor explicitly publishes a checkpoint.
+CREATE VIRTUAL TABLE IF NOT EXISTS article_working_fts USING fts5(
+  article_id UNINDEXED,
+  title,
+  summary,
+  content_md,
+  tags,
+  tokenize = 'unicode61'
+);
+
+CREATE VIRTUAL TABLE IF NOT EXISTS article_public_fts USING fts5(
+  article_id UNINDEXED,
+  slug UNINDEXED,
+  title,
+  summary,
+  tags,
+  content_text,
+  tokenize = 'unicode61'
+);
+
+CREATE TRIGGER IF NOT EXISTS articles_working_fts_after_insert
+AFTER INSERT ON articles
+BEGIN
+  INSERT INTO article_working_fts (article_id, title, summary, content_md, tags)
+    SELECT NEW.id, NEW.title, NEW.summary, NEW.content_md, NEW.tags_json
+    WHERE NEW.deleted_at IS NULL;
+END;
+
+
+-- Derived trade links are a transaction-local projection of the canonical
+-- server-computed JSON. Triggers prevent a slower request from overwriting a
+-- newer revision's reverse links after its compare-and-swap UPDATE succeeds.
+CREATE TRIGGER IF NOT EXISTS articles_trade_links_after_insert
+AFTER INSERT ON articles
+BEGIN
+  DELETE FROM article_trade_links_derived WHERE article_id = NEW.id;
+  INSERT OR IGNORE INTO article_trade_links_derived (article_id, trade_id, created_at)
+    SELECT NEW.id, upper(trim(CAST(value AS TEXT))), NEW.updated_at
+    FROM json_each(CASE WHEN json_valid(NEW.trade_ids_json) THEN NEW.trade_ids_json ELSE '[]' END)
+    WHERE NEW.deleted_at IS NULL
+      AND upper(trim(CAST(value AS TEXT))) LIKE 'TR-%'
+      AND length(substr(upper(trim(CAST(value AS TEXT))), 4)) >= 4
+      AND substr(upper(trim(CAST(value AS TEXT))), 4) NOT GLOB '*[^0-9]*';
+END;
+
+CREATE TRIGGER IF NOT EXISTS articles_trade_links_after_update
+AFTER UPDATE OF trade_ids_json, deleted_at ON articles
+BEGIN
+  DELETE FROM article_trade_links_derived WHERE article_id = NEW.id;
+  INSERT OR IGNORE INTO article_trade_links_derived (article_id, trade_id, created_at)
+    SELECT NEW.id, upper(trim(CAST(value AS TEXT))), NEW.updated_at
+    FROM json_each(CASE WHEN json_valid(NEW.trade_ids_json) THEN NEW.trade_ids_json ELSE '[]' END)
+    WHERE NEW.deleted_at IS NULL
+      AND upper(trim(CAST(value AS TEXT))) LIKE 'TR-%'
+      AND length(substr(upper(trim(CAST(value AS TEXT))), 4)) >= 4
+      AND substr(upper(trim(CAST(value AS TEXT))), 4) NOT GLOB '*[^0-9]*';
+END;
+CREATE TRIGGER IF NOT EXISTS articles_working_fts_after_update
+AFTER UPDATE OF title, summary, content_md, tags_json, deleted_at ON articles
+BEGIN
+  DELETE FROM article_working_fts WHERE article_id = NEW.id;
+  INSERT INTO article_working_fts (article_id, title, summary, content_md, tags)
+    SELECT NEW.id, NEW.title, NEW.summary, NEW.content_md, NEW.tags_json
+    WHERE NEW.deleted_at IS NULL;
+END;
+
+-- Publishing is one conditional UPDATE. The current revision is snapshotted and
+-- only public metadata is copied into the search projection in the same transaction.
+CREATE TRIGGER IF NOT EXISTS articles_public_snapshot_after_update
+AFTER UPDATE OF visibility, published_revision, deleted_at ON articles
+BEGIN
+  DELETE FROM article_public_fts WHERE article_id = NEW.id;
+  INSERT OR REPLACE INTO article_versions (
+    article_id, revision, title, summary, slug, content_md, status,
+    cover_image_id, tags_json, trade_ids_json, public_search_text, created_by, created_at
+  )
+    SELECT NEW.id, NEW.revision, NEW.title, NEW.summary, NEW.slug, NEW.content_md,
+      'final', NEW.cover_image_id, NEW.tags_json, NEW.trade_ids_json, NEW.public_search_text,
+      NEW.updated_by, NEW.updated_at
+    WHERE NEW.deleted_at IS NULL
+      AND NEW.visibility = 'public'
+      AND NEW.published_revision = NEW.revision;
+  INSERT INTO article_public_fts (article_id, slug, title, summary, tags, content_text)
+    SELECT NEW.id, NEW.slug, '', '', '', NEW.public_search_text
+    WHERE NEW.deleted_at IS NULL
+      AND NEW.visibility = 'public'
+      AND NEW.published_revision = NEW.revision;
+END;

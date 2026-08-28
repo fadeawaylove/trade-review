@@ -6,8 +6,22 @@ import { Miniflare } from "miniflare";
 import { permanentlyDeleteTrade } from "../worker/src/trash.js";
 
 async function executeSql(db, sql) {
-  const statements = sql.replaceAll("\r", "").split(";").map((statement) => statement.trim()).filter(Boolean);
-  for (const statement of statements) await db.prepare(statement).run();
+  const statements = [];
+  let current = [];
+  let trigger = false;
+  for (const sourceLine of String(sql || "").replaceAll("\r", "").split("\n")) {
+    const line = sourceLine.trim();
+    if (!line || line.startsWith("--")) continue;
+    if (!current.length) trigger = /^CREATE\s+TRIGGER\b/i.test(line);
+    current.push(line);
+    const complete = trigger ? /^END;$/i.test(line) : /;$/.test(line);
+    if (!complete) continue;
+    statements.push(current.join(" "));
+    current = [];
+    trigger = false;
+  }
+  if (current.length) throw new Error("测试 SQL 包含未闭合的语句");
+  await db.exec(statements.join("\n"));
 }
 
 test("真实 D1 批次会原子移除交易及全部结构化关联", async () => {
@@ -57,6 +71,7 @@ test("真实 D1 批次会原子移除交易及全部结构化关联", async () =
       ["audit_log", "trade_id = 'TR-0002'"],
       ["access_history", "resource_type = 'trade' AND resource_id = 'TR-0002'"],
       ["article_trade_links", "trade_id = 'TR-0002'"],
+      ["article_trade_links_derived", "trade_id = 'TR-0002'"],
       ["deleted_trades", "trade_id = 'TR-0002'"],
     ]) {
       const count = await db.prepare(`SELECT COUNT(*) AS count FROM ${table} WHERE ${where}`).first();

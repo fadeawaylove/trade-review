@@ -1,25 +1,30 @@
-import { renderArticleMarkdown } from "./article-markdown.js?v=20260804-3";
+import { renderArticleMarkdown } from "./article-markdown.js?v=20260829-2";
 import {
   articleDownloadName,
   articleHash,
   articleIdFromHash,
+  articlePublicationProgress,
+  buildArticleLineDiff,
   deriveImportedArticle,
   filterArticleSummaries,
+  needsArticlePublishing,
   preserveUnchangedMarkdown,
   proportionalScrollTop,
-} from "./article-utils.js?v=20260804-2";
+} from "./article-utils.js?v=20260829-2";
 import {
   formatTradeReference,
   privateArticleImageIds,
   replacePrivateArticleImages,
   restorePrivateArticleImages,
+  tradeIdsFromMarkdown,
   tradePickerTrades,
-} from "./article-references.js?v=20260804-2";
+} from "./article-references.js?v=20260829-2";
 
 const $ = (id) => document.getElementById(id);
 const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[char]));
 const VDITOR_CDN = new URL("./vendor/vditor", import.meta.url).href.replace(/\/$/, "");
 const AUTOSAVE_DELAY_MS = 1200;
+const ARTICLE_SEARCH_DELAY_MS = 250;
 
 export function dismissVditorImagePreview(root = document) {
   const preview = root.querySelector?.(".vditor-img");
@@ -27,6 +32,61 @@ export function dismissVditorImagePreview(root = document) {
   preview.remove();
   if (root.body) root.body.style.overflow = "";
   return true;
+}
+
+export function reconcileArticleSave({ savedContent, submittedEditable, savedChangeVersion, currentChangeVersion }) {
+  return {
+    snapshot: {
+      stored: String(savedContent || ""),
+      editable: String(submittedEditable || ""),
+    },
+    hasNewerChanges: savedChangeVersion !== currentChangeVersion,
+  };
+}
+
+export async function uploadArticleImagesForEditor({
+  files,
+  articleId,
+  sessionId,
+  isSessionCurrent,
+  prepareImage,
+  uploadImage,
+  getEditor,
+  createObjectUrl = (blob) => URL.createObjectURL(blob),
+  revokeObjectUrl = (url) => URL.revokeObjectURL(url),
+  onUploaded = () => {},
+  onError = () => {},
+}) {
+  for (const file of [...files]) {
+    let localUrl = "";
+    try {
+      const prepared = await prepareImage(file);
+      if (!isSessionCurrent(sessionId)) return { stale: true };
+      const result = await uploadImage(articleId, prepared);
+      if (!isSessionCurrent(sessionId)) return { stale: true };
+      const editor = getEditor();
+      if (!editor) throw new Error("Markdown 编辑器尚未准备完成");
+      const remoteSource = result.markdown?.match(/\]\((article-image:[^)]+)\)/)?.[1];
+      if (!remoteSource) throw new Error("图片上传完成，但没有返回有效的 Markdown 引用");
+      localUrl = createObjectUrl(prepared.blob);
+      if (!isSessionCurrent(sessionId)) {
+        revokeObjectUrl(localUrl);
+        return { stale: true };
+      }
+      editor.insertValue(`\n\n${result.markdown.replace(remoteSource, localUrl)}\n`);
+      await onUploaded({
+        result,
+        imageId: remoteSource.slice("article-image:".length).toLowerCase(),
+        localUrl,
+        markdown: editor.getValue(),
+      });
+      localUrl = "";
+    } catch (error) {
+      if (localUrl) revokeObjectUrl(localUrl);
+      await onError(error);
+    }
+  }
+  return { stale: false };
 }
 
 function downloadBlob(blob, fileName) {
@@ -87,9 +147,51 @@ export function assignArticleHeadingIds(host) {
   });
 }
 
+export function renderArticleLineDiff(host, operations, { checkpointRevision = "", currentRevision = "" } = {}) {
+  const documentRoot = host.ownerDocument || document;
+  const inserted = operations.filter((line) => line.type === "insert").length;
+  const deleted = operations.filter((line) => line.type === "delete").length;
+  const heading = documentRoot.createElement("header");
+  heading.className = "article-version-diff-heading";
+  const title = documentRoot.createElement("h3");
+  title.textContent = `检查点 ${checkpointRevision} → 当前工作副本 ${currentRevision}`;
+  const summary = documentRoot.createElement("p");
+  summary.textContent = inserted || deleted ? `新增 ${inserted} 行 · 删除 ${deleted} 行` : "与当前工作副本没有正文差异";
+  heading.append(title, summary);
+
+  const diff = documentRoot.createElement("div");
+  diff.className = "article-line-diff";
+  diff.setAttribute("role", "table");
+  diff.setAttribute("aria-label", "Markdown 逐行差异");
+  operations.forEach((line) => {
+    const row = documentRoot.createElement("div");
+    row.className = "article-line-diff-row";
+    row.dataset.type = line.type;
+    row.setAttribute("role", "row");
+    const beforeNumber = documentRoot.createElement("span");
+    beforeNumber.className = "article-line-number";
+    beforeNumber.textContent = line.beforeLine ?? "";
+    const afterNumber = documentRoot.createElement("span");
+    afterNumber.className = "article-line-number";
+    afterNumber.textContent = line.afterLine ?? "";
+    const marker = documentRoot.createElement("span");
+    marker.className = "article-line-marker";
+    marker.textContent = line.type === "insert" ? "+" : line.type === "delete" ? "−" : " ";
+    const code = documentRoot.createElement("code");
+    code.textContent = line.text || " ";
+    row.append(beforeNumber, afterNumber, marker, code);
+    diff.append(row);
+  });
+
+  host.replaceChildren(heading, diff);
+}
+
 export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify, prepareImage, openTrade, recordAccess }) {
   let summaries = [];
   let deletedSummaries = [];
+  let searchedSummaries = null;
+  let searchTimer = null;
+  let searchRequestVersion = 0;
   let current = null;
   let currentUser = null;
   let summaryLoadPromise = null;
@@ -105,13 +207,30 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
   let autosaveTimer = null;
   let changeVersion = 0;
   let savePromise = null;
+  let imageUploadPromise = null;
+  let editorSessionVersion = 0;
+  let acceptedHash = location.hash;
   let editorMarkdownSnapshot = null;
   let scrollSyncCleanup = null;
+  let editorView = "write";
+  let settingsReturnFocus = null;
   const pendingPastedImages = new Map();
   const editorPrivateImageSources = new Map();
   const editorPrivateImageErrors = new Map();
 
   const canEdit = () => currentUser?.role === "editor";
+  const publicJournalBase = () => String(window.TRADE_CONFIG?.publicJournalUrl || "").trim().replace(/\/$/, "");
+  const articleSummary = (article) => String(article?.summary || cleanArticleExcerpt(article?.excerpt) || "").trim();
+  const isPublished = (article) => article?.visibility === "public" && Number(article?.publishedRevision) > 0;
+  const publicationProgressLabel = (article) => ({
+    "pending-first": "待首次发布",
+    "pending-update": "有未发布修改",
+  })[articlePublicationProgress(article)] || "";
+
+  function publicArticleUrl(article) {
+    const base = publicJournalBase();
+    return base && article?.slug && isPublished(article) ? `${base}/posts/${encodeURIComponent(article.slug)}` : "";
+  }
 
   function revokeImages() {
     imageObjectUrls.forEach((url) => URL.revokeObjectURL(url));
@@ -225,7 +344,7 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
   }
 
   function updateLivePreview(markdown = "") {
-    $("articlePreviewTitle").textContent = $("articleTitleInput").value.trim() || "无标题随笔";
+    $("articlePreviewTitle").textContent = $("articleTitleInput").value.trim() || "未命名研究";
     $("articleEditorPreview").innerHTML = renderArticleMarkdown(markdown);
     for (const [imageId, message] of editorPrivateImageErrors) {
       const state = $("articleEditorPreview").querySelector(`[data-article-image-id="${imageId}"] .article-image-state`);
@@ -237,6 +356,61 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
   function scheduleLivePreview(markdown) {
     window.clearTimeout(previewTimer);
     previewTimer = window.setTimeout(() => updateLivePreview(markdown), 160);
+  }
+
+  function scrollBehavior() {
+    return window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches ? "auto" : "smooth";
+  }
+
+  function setEditorView(nextView, { focus = true } = {}) {
+    const allowed = new Set(["write", "preview", "split"]);
+    let resolved = allowed.has(nextView) ? nextView : "write";
+    if (resolved === "split" && window.matchMedia?.("(max-width: 900px)")?.matches) resolved = "write";
+    editorView = resolved;
+    $("articleDocumentCanvas").dataset.view = resolved;
+    document.querySelectorAll("[data-editor-view]").forEach((button) => {
+      button.setAttribute("aria-pressed", String(button.dataset.editorView === resolved));
+    });
+    if (!focus) return;
+    if (resolved === "preview") $("articlePreviewTitle").focus?.({ preventScroll: true });
+    else articleEditorInstance?.focus();
+  }
+
+  function setSettingsOpen(open) {
+    const drawer = $("articleSettingsDrawer");
+    const scrim = $("articleSettingsScrim");
+    if (open) settingsReturnFocus = document.activeElement;
+    drawer.hidden = !open;
+    scrim.hidden = !open;
+    $("articleSettingsButton").setAttribute("aria-expanded", String(open));
+    if (open) window.setTimeout(() => $("articleSettingsClose").focus(), 0);
+    else if (settingsReturnFocus?.focus) settingsReturnFocus.focus({ preventScroll: true });
+  }
+
+  function renderPublicationControls(article = current) {
+    const published = isPublished(article);
+    const hasPublishedSnapshot = Number(article?.publishedRevision) > 0;
+    const needsPublishing = needsArticlePublishing(article);
+    $("articlePublishButton").hidden = published && !needsPublishing;
+    $("articlePublishButton").textContent = published && needsPublishing
+      ? "更新发布"
+      : hasPublishedSnapshot ? "重新发布" : "发布";
+    $("articleUnpublishButton").hidden = !published;
+    $("articleCheckpointButton").disabled = !article?.id;
+    $("articlePublishButton").disabled = !article?.id;
+    $("articleVisibilityInput").value = article?.visibility || "private";
+    $("articleVisibilityInput").disabled = true;
+    $("articleSlugInput").disabled = hasPublishedSnapshot;
+    $("articleSlugHint").textContent = hasPublishedSnapshot
+      ? `公开地址已锁定${article?.publishedRevision ? ` · 已发布检查点 ${article.publishedRevision}` : ""}`
+      : "首次发布后地址锁定。";
+    if (published) {
+      $("articlePublicationState").textContent = `公开中 · 检查点 ${article.publishedRevision}${article.publishedAt ? ` · ${dateTime(article.publishedAt)}` : ""}${needsPublishing ? " · 有未发布修改" : ""}`;
+    } else if (hasPublishedSnapshot) {
+      $("articlePublicationState").textContent = `当前私密 · 保留最近公开检查点 ${article.publishedRevision}`;
+    } else {
+      $("articlePublicationState").textContent = "尚未发布；工作副本仅登录用户可见。";
+    }
   }
 
   function ensureArticleEditor(value = "") {
@@ -338,8 +512,39 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
   }
 
   function setHash(hash, mode = "push") {
+    acceptedHash = hash;
     const target = `${location.pathname}${location.search}${hash}`;
     history[mode === "replace" ? "replaceState" : "pushState"]({ articleSection: true }, "", target);
+  }
+
+  function exitEditorSession() {
+    editorSessionVersion += 1;
+    clearAutosaveTimer();
+    scrollSyncCleanup?.();
+    scrollSyncCleanup = null;
+    toggleTradePicker(false);
+    setDirty(false);
+    discardPendingImages();
+    discardEditorPrivateImages();
+  }
+
+  async function requestLeaveEditor(action, { restoreHash = null } = {}) {
+    if (savePromise || imageUploadPromise) {
+      notify(savePromise ? "随笔正在保存，请稍候再离开" : "图片正在上传，请稍候再离开", true);
+      if (restoreHash !== null && location.hash !== restoreHash) setHash(restoreHash);
+      return false;
+    }
+    if (dirty && !confirm("当前编辑内容尚未保存，确定放弃修改并离开吗？")) {
+      if (restoreHash !== null && location.hash !== restoreHash) setHash(restoreHash);
+      return false;
+    }
+    if (!$(`articleEditor`).hidden || dirty) exitEditorSession();
+    await action?.();
+    return true;
+  }
+
+  function guardedNavigation(action) {
+    requestLeaveEditor(action).catch((error) => notify(error.message, true));
   }
 
   function showSection(section, { updateHistory = true, load = true, trackDashboard = true } = {}) {
@@ -370,6 +575,8 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
   }
 
   function showArticleHome({ clearCurrent = true } = {}) {
+    if (!$(`articleEditor`).hidden && (dirty || savePromise || imageUploadPromise)) return false;
+    clearAutosaveTimer();
     if (clearCurrent) current = null;
     $("articleHome").hidden = false;
     $("articleReader").hidden = true;
@@ -383,8 +590,10 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
     $("journalAbout").hidden = true;
     document.body.classList.remove("article-writing-open");
     $("articleEditor").closest(".article-layout").classList.remove("is-editing");
+    setSettingsOpen(false);
     setJournalNav("home");
     renderList();
+    return true;
   }
 
   function articleFilters() {
@@ -392,6 +601,7 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
       query: $("articleSearch").value,
       tag: $("articleTagFilter").value,
       status: $("articleStatusFilter").value,
+      visibility: $("articleVisibilityFilter").value,
       deleted: trashMode,
     };
   }
@@ -429,7 +639,7 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
       .sort((a, b) => a - b);
     const startedAt = articleDates[0] || null;
     const topicCount = topics.filter(([, count]) => count > 0).length;
-    $("journalStats").textContent = `${rows.length} 篇文章 · ${topicCount} 个主题${startedAt ? ` · 自 ${dateOnly(startedAt)}起` : ""}`;
+    $("journalStats").textContent = `${topicCount} 个主题${startedAt ? ` · 自 ${dateOnly(startedAt)}起` : ""}`;
     $("journalTopicList").innerHTML = topics.slice(0, 4).map(([tag, count]) => `<button type="button" data-journal-topic="${esc(tag)}"><span>${esc(tag)}</span><b>${count}</b></button>`).join("");
     $("journalArchiveList").innerHTML = archives.length
       ? archives.slice(0, 3).map(([label, count]) => `<button type="button" data-journal-archive="${esc(label)}"><span>${esc(label)}</span><b>${count}</b></button>`).join("")
@@ -461,39 +671,43 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
 
   function renderList() {
     const source = trashMode ? deletedSummaries : summaries;
-    const rows = filterArticleSummaries(source, articleFilters());
+    const filters = articleFilters();
+    const serverSearchActive = !trashMode && filters.query.trim() && searchedSummaries;
+    const displaySource = serverSearchActive ? searchedSummaries : source;
+    const rows = filterArticleSummaries(displaySource, {
+      ...filters,
+      query: serverSearchActive ? "" : filters.query,
+    })
+      .filter((article) => !filters.visibility || article.visibility === filters.visibility);
     $("articleListCount").textContent = `${rows.length} 篇`;
     $("articleListMode").textContent = trashMode ? "回收站" : "按更新时间排序";
     $("articleTrashButton").textContent = trashMode ? "返回全部随笔" : `随笔回收站${deletedSummaries.length ? ` ${deletedSummaries.length}` : ""}`;
-    const featured = rows[0];
-    renderJournalIndexes(rows);
-    $("articleFeature").hidden = trashMode;
-    $("articleFeature").innerHTML = featured && !trashMode ? `
-      <div class="journal-feature-heading"><p class="journal-kicker">EDITOR'S PICK</p><h2>本期推荐</h2></div>
-      <button class="journal-feature-link" type="button" data-article-id="${featured.id}">
-        <span class="journal-feature-cover"><img src="./assets/journal-feature-cover.webp" alt="摊开的交易笔记、钢笔和咖啡杯"></span>
-        <span class="journal-feature-copy">
-          <small>${featured.tags?.[0] ? esc(featured.tags[0]) : featured.status === "final" ? "已整理" : "草稿"}</small>
-          <h1>${esc(featured.title)}</h1>
-          <p>${esc(cleanArticleExcerpt(featured.excerpt) || "打开文章，继续这段尚未写完的思考。")}</p>
-          <span class="journal-tag-row">${(featured.tags || []).slice(0, 3).map((tag) => `<i>${esc(tag)}</i>`).join("")}</span>
-          <span class="journal-feature-meta"><time>${esc(dateOnly(featured.updatedAt))}</time><span>约 ${articleReadingMinutes(featured)} 分钟阅读</span><b>阅读全文</b></span>
-        </span>
-      </button>` : "";
-    const listRows = rows;
+    renderJournalIndexes(source.filter((article) => !article.deletedAt));
+    const activeRows = summaries.filter((article) => !article.deletedAt);
+    const latest = activeRows[0];
+    $("journalTotalCount").textContent = String(activeRows.length);
+    $("journalDraftCount").textContent = String(activeRows.filter((article) => article.status === "draft").length);
+    $("journalPendingCount").textContent = String(activeRows.filter(needsArticlePublishing).length);
+    $("journalPublicCount").textContent = String(activeRows.filter(isPublished).length);
+    $("journalLastUpdated").textContent = latest ? dateOnly(latest.updatedAt) : "—";
+    const activeFilterCount = [filters.query.trim(), filters.status, filters.visibility, filters.tag].filter(Boolean).length;
+    $("journalFilterSummary").textContent = activeFilterCount
+      ? `已应用 ${activeFilterCount} 项筛选，显示 ${rows.length} / ${source.length} 篇。`
+      : `共 ${rows.length} 篇工作档案；搜索覆盖标题、摘要、标签与正文。`;
     if (!rows.length) {
       $("articleList").innerHTML = `<div class="article-list-empty">${trashMode ? "回收站中没有文章" : "当前条件下没有文章"}</div>`;
-    } else if (!listRows.length) {
-      $("articleList").innerHTML = `<div class="article-list-empty">封面文章之外，暂时没有更多内容。</div>`;
     } else {
-      $("articleList").innerHTML = listRows.map((article) => `
-      <button class="article-list-item ${article.id === current?.id ? "active" : ""}" type="button" data-article-id="${article.id}">
-        <span class="article-list-cover"><img src="./assets/${article.id === featured?.id ? "journal-feature-cover.webp" : "journal-secondary-cover.webp"}" alt=""></span>
-        <span class="article-list-copy"><b>${esc(article.title)}</b><span>${esc(cleanArticleExcerpt(article.excerpt) || "打开文章，继续这段尚未写完的思考。")}</span><small>${esc(dateOnly(article.updatedAt))} · 约 ${articleReadingMinutes(article)} 分钟阅读</small></span>
-        <span class="article-list-read">阅读全文</span>
-      </button>`).join("");
+      $("articleList").innerHTML = rows.map((article) => `
+      <a class="article-list-item ${article.id === current?.id ? "active" : ""}" href="${articleHash(article.id)}" data-article-id="${article.id}">
+        <span class="article-list-state"><i data-state="${article.status}">${article.status === "final" ? "已整理" : "草稿"}</i><i data-visibility="${article.visibility || "private"}">${isPublished(article) ? "公开" : "私密"}</i>${publicationProgressLabel(article) ? `<i data-publication="${articlePublicationProgress(article)}">${publicationProgressLabel(article)}</i>` : ""}</span>
+        <span class="article-list-copy"><b>${esc(article.title)}</b><span>${esc(articleSummary(article) || "尚未填写摘要；打开工作副本继续整理。")}</span><span class="article-list-tags">${(article.tags || []).slice(0, 4).map((tag) => `<i>${esc(tag)}</i>`).join("")}</span></span>
+        <span class="article-list-facts"><time>${esc(dateOnly(article.updatedAt))}</time><small>约 ${articleReadingMinutes(article)} 分钟</small><b>打开档案</b></span>
+      </a>`).join("");
     }
-    $("articleHome").querySelectorAll("[data-article-id]").forEach((button) => button.addEventListener("click", () => openArticle(button.dataset.articleId)));
+    $("articleHome").querySelectorAll("[data-article-id]").forEach((link) => link.addEventListener("click", (event) => {
+      event.preventDefault();
+      openArticle(link.dataset.articleId);
+    }));
     $("journalTopicList").querySelectorAll("[data-journal-topic]").forEach((button) => button.addEventListener("click", () => showJournalIndex("tags", button.dataset.journalTopic)));
     $("journalArchiveList").querySelectorAll("[data-journal-archive]").forEach((button) => button.addEventListener("click", () => showJournalIndex("archive", button.dataset.journalArchive)));
   }
@@ -509,7 +723,8 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
       deletedSummaries = deleted.articles || [];
       loaded = true;
       refreshTagOptions();
-      renderList();
+      if (!trashMode && $("articleSearch").value.trim()) refreshArticleSearch();
+      else renderList();
     })();
     try { return await summaryLoadPromise; }
     finally { summaryLoadPromise = null; }
@@ -528,6 +743,43 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
     }
   }
 
+  function refreshArticleSearch() {
+    const query = $("articleSearch").value.trim();
+    const requestVersion = ++searchRequestVersion;
+    if (searchTimer) clearTimeout(searchTimer);
+    searchTimer = null;
+    searchedSummaries = null;
+    renderList();
+    if (!query || trashMode) return;
+    searchTimer = window.setTimeout(async () => {
+      try {
+        const result = await apiFetch(`/api/articles?q=${encodeURIComponent(query)}`);
+        if (requestVersion !== searchRequestVersion || $("articleSearch").value.trim() !== query || trashMode) return;
+        searchedSummaries = result.articles || [];
+        renderList();
+      } catch (error) {
+        if (requestVersion === searchRequestVersion) notify(`搜索手记失败：${error.message}`, true);
+      }
+    }, ARTICLE_SEARCH_DELAY_MS);
+  }
+
+  function hydrateReaderCover(article) {
+    const figure = $("articleReaderCover");
+    const image = $("articleReaderCoverImage");
+    figure.hidden = !article.coverImageId;
+    image.removeAttribute("src");
+    if (!article.coverImageId) return;
+    image.alt = `${article.title}的封面证据`;
+    privateImageUrl(article.coverImageId).then((url) => {
+      if (current?.id !== article.id) return URL.revokeObjectURL(url);
+      imageObjectUrls.push(url);
+      image.src = url;
+    }).catch((error) => {
+      figure.hidden = true;
+      notify(error.message, true);
+    });
+  }
+
   function renderReader(article) {
     clearAutosaveTimer();
     scrollSyncCleanup?.();
@@ -543,10 +795,16 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
     $("articleEditor").hidden = true;
     $("articleHistory").hidden = true;
     $("articleReader").hidden = false;
-    $("articleReaderStatus").textContent = article.status === "final" ? "已整理" : "草稿";
+    $("articleReaderStatus").textContent = `${article.status === "final" ? "已整理" : "草稿"} · ${isPublished(article) ? `公开检查点 ${article.publishedRevision}` : "私密工作副本"}${publicationProgressLabel(article) ? ` · ${publicationProgressLabel(article)}` : ""}`;
     $("articleReaderTitle").textContent = article.title;
-    $("articleReaderMeta").textContent = `版本 ${article.revision} · ${article.updatedBy} 更新于 ${dateTime(article.updatedAt)}`;
+    const summary = articleSummary(article);
+    $("articleReaderSummary").hidden = !summary;
+    $("articleReaderSummary").textContent = summary;
+    $("articleReaderMeta").textContent = `工作版本 ${article.revision} · ${article.updatedBy} 更新于 ${dateTime(article.updatedAt)} · 约 ${articleReadingMinutes(article)} 分钟阅读`;
     $("articleReaderTags").innerHTML = (article.tags || []).map((tag) => `<span>${esc(tag)}</span>`).join("");
+    const publicUrl = publicArticleUrl(article);
+    $("articlePublicViewButton").hidden = !publicUrl;
+    if (publicUrl) $("articlePublicViewButton").href = publicUrl;
     $("articleMarkdown").innerHTML = renderArticleMarkdown(article.contentMd);
     const tocItems = assignArticleHeadingIds($("articleMarkdown"));
     $("articleTocNav").innerHTML = tocItems.map((item) => `<button type="button" data-article-heading-id="${esc(item.id)}" data-level="${item.level}">${esc(item.title)}</button>`).join("");
@@ -558,12 +816,13 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
     $("articleHistoryButton").hidden = !canEdit() || Boolean(article.deletedAt);
     setJournalNav("articles");
     toggleTradePicker(false);
+    hydrateReaderCover(article);
     hydrateArticleImages($("articleMarkdown"));
     renderList();
   }
 
-  async function openArticle(articleId, { historyMode = "push" } = {}) {
-    if (dirty && !confirm("当前编辑内容尚未保存，确定离开吗？")) return;
+  async function openArticle(articleId, { historyMode = "push", skipLeaveGuard = false } = {}) {
+    if (!skipLeaveGuard && !await requestLeaveEditor()) return false;
     const deleted = trashMode ? "?deleted=1" : "";
     const previousId = current?.id;
     const payload = await apiFetch(`/api/articles/${encodeURIComponent(articleId)}${deleted}`);
@@ -572,6 +831,7 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
     renderReader(current);
     if (previousId !== current.id) recordAccess?.("article", current.id, current.title);
     if (historyMode !== "none") setHash(articleHash(articleId), historyMode);
+    return true;
   }
 
   function articleTrades() {
@@ -630,12 +890,22 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
   }
 
   function renderEditorImages(images) {
+    const selectedCover = $("articleCoverInput").value || current?.coverImageId || "";
+    $("articleCoverInput").replaceChildren(
+      new Option("不设置封面", ""),
+      ...(images || []).map((image) => new Option(image.fileName || "未命名图片", image.id)),
+    );
+    if ((images || []).some((image) => image.id === selectedCover)) $("articleCoverInput").value = selectedCover;
     $("articleImages").innerHTML = (images || []).map((image) => `<div class="article-image-row"><span>${esc(image.fileName)} · ${Math.max(1, Math.round(image.byteSize / 1024))} KB</span><button type="button" data-delete-article-image="${image.id}">删除</button></div>`).join("");
     $("articleImages").querySelectorAll("[data-delete-article-image]").forEach((button) => button.addEventListener("click", async () => {
       if (!confirm("删除这张随笔图片？正文中的引用不会自动移除。")) return;
       try {
         await apiFetch(`/api/article-images/${encodeURIComponent(button.dataset.deleteArticleImage)}`, { method: "DELETE" });
         current.images = current.images.filter((image) => image.id !== button.dataset.deleteArticleImage);
+        if ($("articleCoverInput").value === button.dataset.deleteArticleImage) {
+          $("articleCoverInput").value = "";
+          markEditorChanged();
+        }
         renderEditorImages(current.images);
         notify("随笔图片已删除");
       } catch (error) { notify(error.message, true); }
@@ -644,6 +914,7 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
 
   async function editArticle(article = null) {
     if (!canEdit()) { notify("当前账号仅有浏览权限", true); return; }
+    editorSessionVersion += 1;
     clearAutosaveTimer();
     changeVersion = 0;
     editorMarkdownSnapshot = null;
@@ -662,14 +933,21 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
     $("articleEditor").hidden = false;
     document.body.classList.add("article-writing-open");
     $("articleEditor").closest(".article-layout").classList.add("is-editing");
-    $("articleEditorHeading").textContent = article ? "编辑随笔" : "新建随笔";
+    $("articleEditorHeading").textContent = article?.id ? "编辑研究手记" : "新建研究手记";
     $("articleTitleInput").value = article?.title || "";
+    $("articleSummaryInput").value = article?.summary || "";
     $("articleStatusInput").value = article?.status || "draft";
     $("articleTagsInput").value = (article?.tags || []).join("，");
+    $("articleSlugInput").value = article?.slug || "";
+    $("articleVisibilityInput").value = article?.visibility || "private";
     $("articleTradeSearch").value = "";
     renderTradePicker();
     toggleTradePicker(false);
     renderEditorImages(article?.images || []);
+    if (article?.coverImageId) $("articleCoverInput").value = article.coverImageId;
+    renderPublicationControls(article);
+    setSettingsOpen(false);
+    setEditorView("write", { focus: false });
     $("articleTitleInput").focus();
     const storedMarkdown = article?.contentMd || "";
     syncEditorMarkdown("");
@@ -695,18 +973,21 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
     }
   }
 
-  function editorPayload() {
-    const editableContent = articleEditorInstance ? articleEditorInstance.getValue() : pendingEditorValue;
+  function editorPayload(editableContent = articleEditorInstance ? articleEditorInstance.getValue() : pendingEditorValue) {
     const unchangedAwareContent = editorMarkdownSnapshot
       ? preserveUnchangedMarkdown(editorMarkdownSnapshot.stored, editorMarkdownSnapshot.editable, editableContent)
       : editableContent;
     const contentMd = restorePrivateArticleImages(unchangedAwareContent, editorPrivateImageSources);
     return {
       title: $("articleTitleInput").value,
+      summary: $("articleSummaryInput").value,
       contentMd,
       status: $("articleStatusInput").value,
       tags: $("articleTagsInput").value.split(/[，,]/).map((tag) => tag.trim()).filter(Boolean),
-      tradeIds: [],
+      slug: $("articleSlugInput").value.trim().toLowerCase(),
+      coverImageId: $("articleCoverInput").value || null,
+      visibility: current?.visibility || "private",
+      tradeIds: tradeIdsFromMarkdown(contentMd),
       ...(current?.revision ? { revision: current.revision } : {}),
     };
   }
@@ -743,16 +1024,31 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
       current.images = [...(current.images || []), result.image];
       pendingPastedImages.delete(localUrl);
       renderEditorImages(current.images);
-      syncEditorMarkdown(replacePrivateArticleImages(contentMd, editorPrivateImageSources));
     }
     return contentMd;
   }
 
   async function persistArticle({ closeAfterSave }) {
     if (savePromise) return savePromise;
+    if (imageUploadPromise) {
+      $("articleSaveState").textContent = "图片上传完成后再保存";
+      return null;
+    }
     if (!$("articleTitleInput").value.trim()) {
       $("articleSaveState").textContent = "填写标题后自动保存";
       if (closeAfterSave) $("articleTitleInput").reportValidity();
+      return null;
+    }
+    const slug = $("articleSlugInput").value.trim().toLowerCase();
+    if (slug && !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug)) {
+      $("articleSaveState").textContent = "公开地址仅支持小写字母、数字与连字符";
+      if (closeAfterSave) $("articleSlugInput").reportValidity();
+      return null;
+    }
+    const tags = $("articleTagsInput").value.split(/[，,]/).map((tag) => tag.trim()).filter(Boolean);
+    if (tags.length > 20) {
+      $("articleSaveState").textContent = "每篇文章最多使用 20 个主题标签";
+      if (closeAfterSave) { setSettingsOpen(true); $("articleTagsInput").focus(); }
       return null;
     }
     clearAutosaveTimer();
@@ -761,8 +1057,9 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
     button.textContent = closeAfterSave ? "正在保存…" : "自动保存中…";
     $("articleSaveState").textContent = closeAfterSave ? "正在保存…" : "正在自动保存…";
     const savedChangeVersion = changeVersion;
+    const submittedEditable = articleEditorInstance ? articleEditorInstance.getValue() : pendingEditorValue;
     savePromise = (async () => {
-      let payload = editorPayload();
+      let payload = editorPayload(submittedEditable);
       const isNewArticle = !current?.id;
       if (isNewArticle) {
         const created = await apiFetch("/api/articles", { method: "POST", body: JSON.stringify(payload) });
@@ -778,16 +1075,25 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
         });
         current = updated.article;
       }
+      if (closeAfterSave) {
+        await apiFetch(`/api/articles/${encodeURIComponent(current.id)}/checkpoints`, {
+          method: "POST",
+          body: JSON.stringify({ revision: current.revision }),
+        });
+      }
       return current;
     })();
     try {
       await savePromise;
-      editorMarkdownSnapshot = {
-        stored: current.contentMd,
-        editable: articleEditorInstance?.getValue() || pendingEditorValue,
-      };
-      if (savedChangeVersion === changeVersion) setDirty(false);
-      else scheduleAutoSave();
+      const reconciliation = reconcileArticleSave({
+        savedContent: current.contentMd,
+        submittedEditable,
+        savedChangeVersion,
+        currentChangeVersion: changeVersion,
+      });
+      editorMarkdownSnapshot = reconciliation.snapshot;
+      if (!reconciliation.hasNewerChanges) setDirty(false);
+      renderPublicationControls(current);
       await loadSummaries();
       setHash(articleHash(current.id), "replace");
       if (closeAfterSave && !dirty) {
@@ -805,12 +1111,13 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
       savePromise = null;
       button.disabled = false;
       button.textContent = "立即保存";
+      if (dirty) scheduleAutoSave();
     }
   }
 
   async function autosaveArticle() {
     autosaveTimer = null;
-    if (!dirty || savePromise || !$("articleTitleInput").value.trim()) return;
+    if (!dirty || savePromise || imageUploadPromise || !$("articleTitleInput").value.trim()) return;
     await persistArticle({ closeAfterSave: false });
   }
 
@@ -821,27 +1128,95 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
 
   async function uploadImages(files) {
     if (!current?.id) { notify("请先保存随笔，再上传图片", true); return; }
-    for (const file of files) {
-      try {
-        const prepared = await prepareImage(file);
-        const result = await apiFetch(`/api/articles/${encodeURIComponent(current.id)}/images`, {
-          method: "POST",
-          body: prepared.blob,
-          headers: { "Content-Type": prepared.blob.type, "X-File-Name": encodeURIComponent(prepared.fileName) },
-        });
-        if (!articleEditorInstance) throw new Error("Markdown 编辑器尚未准备完成");
-        const remoteSource = result.markdown?.match(/\]\((article-image:[^)]+)\)/)?.[1];
-        if (!remoteSource) throw new Error("图片上传完成，但没有返回有效的 Markdown 引用");
-        const imageId = remoteSource.slice("article-image:".length).toLowerCase();
-        const localUrl = URL.createObjectURL(prepared.blob);
+    if (savePromise) { notify("随笔正在保存，请稍候再上传图片", true); return savePromise; }
+    if (imageUploadPromise) { notify("图片正在上传，请稍候", true); return imageUploadPromise; }
+    const articleId = current.id;
+    const sessionId = editorSessionVersion;
+    const input = $("articleImageInput");
+    const saveButton = $("articleSaveButton");
+    clearAutosaveTimer();
+    input.disabled = true;
+    saveButton.disabled = true;
+    const uploadTask = uploadArticleImagesForEditor({
+      files,
+      articleId,
+      sessionId,
+      isSessionCurrent: (candidate) => candidate === editorSessionVersion && current?.id === articleId,
+      prepareImage,
+      uploadImage: (targetArticleId, prepared) => apiFetch(`/api/articles/${encodeURIComponent(targetArticleId)}/images`, {
+        method: "POST",
+        body: prepared.blob,
+        headers: { "Content-Type": prepared.blob.type, "X-File-Name": encodeURIComponent(prepared.fileName) },
+      }),
+      getEditor: () => articleEditorInstance,
+      onUploaded: ({ result, imageId, localUrl, markdown }) => {
         editorPrivateImageSources.set(imageId, localUrl);
-        articleEditorInstance.insertValue(`\n\n${result.markdown.replace(remoteSource, localUrl)}\n`);
         current.images = [...(current.images || []), result.image];
         renderEditorImages(current.images);
         markEditorChanged();
-        scheduleLivePreview(articleEditorInstance.getValue());
-      } catch (error) { notify(error.message, true); }
+        scheduleLivePreview(markdown);
+      },
+      onError: (error) => notify(error.message, true),
+    });
+    imageUploadPromise = uploadTask;
+    try {
+      return await uploadTask;
+    } finally {
+      if (imageUploadPromise === uploadTask) imageUploadPromise = null;
+      input.disabled = !canEdit();
+      saveButton.disabled = false;
+      if (dirty) scheduleAutoSave();
     }
+  }
+
+  async function ensureCurrentSaved() {
+    if (!current?.id || dirty) return persistArticle({ closeAfterSave: false });
+    return current;
+  }
+
+  async function createCheckpoint() {
+    const article = await ensureCurrentSaved();
+    if (!article) return;
+    try {
+      const result = await apiFetch(`/api/articles/${encodeURIComponent(article.id)}/checkpoints`, {
+        method: "POST",
+        body: JSON.stringify({ revision: article.revision }),
+      });
+      const revision = result.version?.revision || result.checkpoint?.revision || article.revision;
+      notify(`检查点 ${revision} 已建立`);
+      await loadSummaries();
+    } catch (error) { notify(error.message, true); }
+  }
+
+  async function publishCurrent() {
+    const article = await ensureCurrentSaved();
+    if (!article) return;
+    try {
+      const result = await apiFetch(`/api/articles/${encodeURIComponent(article.id)}/publish`, {
+        method: "POST",
+        body: JSON.stringify({ revision: article.revision }),
+      });
+      current = result.article || article;
+      $("articleStatusInput").value = current.status || "final";
+      $("articleSlugInput").value = current.slug || "";
+      renderPublicationControls(current);
+      await loadSummaries();
+      notify(`检查点 ${current.publishedRevision || current.revision} 已发布`);
+    } catch (error) { notify(error.message, true); }
+  }
+
+  async function unpublishCurrent() {
+    if (!current?.id || !confirm("取消公开？已发布的工作副本仍会保留在私密档案中。")) return;
+    try {
+      const result = await apiFetch(`/api/articles/${encodeURIComponent(current.id)}/unpublish`, {
+        method: "POST",
+        body: JSON.stringify({ revision: current.revision }),
+      });
+      current = result.article || { ...current, visibility: "private" };
+      renderPublicationControls(current);
+      await loadSummaries();
+      notify("文章已转为私密，最后公开检查点仍被保留");
+    } catch (error) { notify(error.message, true); }
   }
 
   async function openHistory() {
@@ -853,18 +1228,24 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
       try {
         const result = await apiFetch(`/api/articles/${encodeURIComponent(current.id)}/versions/${button.dataset.viewVersion}`);
         const oldPreview = button.closest(".article-version").nextElementSibling;
-        if (oldPreview?.classList.contains("article-version-preview")) oldPreview.remove();
-        const preview = document.createElement("div");
-        preview.className = "article-markdown article-version-preview";
-        preview.innerHTML = renderArticleMarkdown(result.version.contentMd);
+        if (oldPreview?.classList.contains("article-version-diff")) oldPreview.remove();
+        const preview = document.createElement("section");
+        preview.className = "article-version-diff";
+        renderArticleLineDiff(
+          preview,
+          buildArticleLineDiff(result.version.contentMd, current.contentMd),
+          { checkpointRevision: result.version.revision, currentRevision: current.revision },
+        );
         button.closest(".article-version").after(preview);
-        hydrateArticleImages(preview);
       } catch (error) { notify(error.message, true); }
     }));
     $("articleHistoryList").querySelectorAll("[data-restore-version]").forEach((button) => button.addEventListener("click", async () => {
       if (!confirm(`恢复版本 ${button.dataset.restoreVersion}？当前内容会先作为一个历史版本保留。`)) return;
       try {
-        const result = await apiFetch(`/api/articles/${encodeURIComponent(current.id)}/versions/${button.dataset.restoreVersion}/restore`, { method: "POST" });
+        const result = await apiFetch(`/api/articles/${encodeURIComponent(current.id)}/versions/${button.dataset.restoreVersion}/restore`, {
+          method: "POST",
+          body: JSON.stringify({ revision: current.revision }),
+        });
         current = result.article;
         await loadSummaries();
         renderReader(current);
@@ -892,6 +1273,7 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
     current = null;
     setHash("#essays", "replace");
     showArticleHome();
+    refreshArticleSearch();
   }
 
   async function restoreCurrent() {
@@ -906,19 +1288,8 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
     } catch (error) { notify(error.message, true); }
   }
 
-  function cancelEditor() {
-    if (dirty && !confirm("放弃尚未保存的修改？")) return;
-    clearAutosaveTimer();
-    scrollSyncCleanup?.();
-    scrollSyncCleanup = null;
-    toggleTradePicker(false);
-    setDirty(false);
-    if (current) renderReader(current);
-    else {
-      discardPendingImages();
-      discardEditorPrivateImages();
-      showArticleHome();
-    }
+  async function cancelEditor() {
+    await requestLeaveEditor(() => current ? renderReader(current) : showArticleHome());
   }
 
   function exportCurrent() {
@@ -934,6 +1305,12 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
   }
 
   async function route() {
+    const targetHash = location.hash;
+    if (targetHash !== acceptedHash) {
+      const previousHash = acceptedHash;
+      if (!await requestLeaveEditor(null, { restoreHash: previousHash })) return;
+      acceptedHash = targetHash;
+    }
     if (!location.hash.startsWith("#essay")) {
       if (!$("articlesSection").hidden) showSection("trades", { updateHistory: false, trackDashboard: false });
       return;
@@ -941,39 +1318,73 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
     showSection("articles", { updateHistory: false });
     if (!loaded) await loadSummaries();
     const id = articleIdFromHash(location.hash);
-    if (id) await openArticle(id, { historyMode: "none" });
+    if (id) await openArticle(id, { historyMode: "none", skipLeaveGuard: true });
     else showArticleHome();
   }
 
-  $("tradesSectionButton").addEventListener("click", () => showSection("trades"));
+  async function createFromTrade(trade) {
+    const reference = formatTradeReference(trade);
+    if (!reference) throw new Error("这笔交易没有可用的交易编号");
+    showSection("articles");
+    if (!loaded) await loadSummaries();
+    const identity = [trade?.date || trade?.dateLabel, trade?.instrument || trade?.contract, trade?.tradeId]
+      .filter(Boolean).join(" · ");
+    const seed = {
+      title: `${identity || "交易"}复盘`,
+      summary: "从成交证据出发，记录执行事实、偏差与下一次可验证的改进。",
+      contentMd: `## 关联交易\n\n${reference}\n\n## 执行事实\n\n记录当时看见了什么，以及实际采取的动作。\n\n## 判断与偏差\n\n区分计划内执行、临场判断与事后解释。\n\n## 下一次验证\n\n- [ ] 写下一条可观察、可复现的改进条件\n`,
+      status: "draft",
+      visibility: "private",
+      tags: [trade?.instrument || trade?.contract, "交易复盘"].filter(Boolean),
+      images: [],
+    };
+    await editArticle(seed);
+    markEditorChanged();
+    const created = await persistArticle({ closeAfterSave: false });
+    if (created) notify(`${trade.tradeId} 已写入新的私密手记`);
+    return created;
+  }
+
+  async function articlesForTrade(tradeId) {
+    if (!loaded) await loadSummaries();
+    const normalized = String(tradeId || "").toUpperCase();
+    return summaries.filter((article) => (article.tradeIds || []).map((id) => String(id).toUpperCase()).includes(normalized));
+  }
+
+  const configuredPublicJournal = publicJournalBase();
+  $("journalPublicButton").hidden = !configuredPublicJournal;
+  if (configuredPublicJournal) $("journalPublicButton").href = configuredPublicJournal;
+
+  $("tradesSectionButton").addEventListener("click", () => guardedNavigation(() => showSection("trades")));
   $("articlesSectionButton").addEventListener("click", () => showSection("articles"));
-  $("journalHomeButton").addEventListener("click", () => { setHash("#essays"); showArticleHome(); });
-  $("journalHomeNavButton").addEventListener("click", () => { setHash("#essays"); showArticleHome(); });
-  $("journalArticlesButton").addEventListener("click", () => {
+  $("journalHomeButton").addEventListener("click", () => guardedNavigation(() => { setHash("#essays"); showArticleHome(); }));
+  $("journalHomeNavButton").addEventListener("click", () => guardedNavigation(() => { setHash("#essays"); showArticleHome(); }));
+  $("journalArticlesButton").addEventListener("click", () => guardedNavigation(() => {
     setHash("#essays");
     showArticleHome({ clearCurrent: false });
     setJournalNav("articles");
-    $("journalRecent").scrollIntoView({ behavior: "smooth", block: "start" });
-  });
-  $("journalTradesButton").addEventListener("click", () => showSection("trades"));
-  $("journalWriteButton").addEventListener("click", () => editArticle(null).catch((error) => notify(error.message, true)));
-  $("journalTagsButton").addEventListener("click", () => {
+    $("journalRecent").scrollIntoView({ behavior: scrollBehavior(), block: "start" });
+  }));
+  $("journalTradesButton").addEventListener("click", () => guardedNavigation(() => showSection("trades")));
+  $("journalWriteButton").addEventListener("click", () => guardedNavigation(() => editArticle(null)));
+  $("journalTagsButton").addEventListener("click", () => guardedNavigation(() => {
     setHash("#essays");
     showArticleHome({ clearCurrent: false });
     showJournalIndex("tags");
-  });
-  $("journalArchiveButton").addEventListener("click", () => {
+  }));
+  $("journalArchiveButton").addEventListener("click", () => guardedNavigation(() => {
     setHash("#essays");
     showArticleHome({ clearCurrent: false });
     showJournalIndex("archive");
-  });
+  }));
   $("journalAllTopicsButton").addEventListener("click", () => showJournalIndex("tags"));
   $("journalAllArchiveButton").addEventListener("click", () => showJournalIndex("archive"));
-  $("journalSearchButton").addEventListener("click", () => {
-    $("journalAccount").open = true;
+  $("journalSearchButton").addEventListener("click", () => guardedNavigation(() => {
+    setHash("#essays");
+    showArticleHome({ clearCurrent: false });
     window.setTimeout(() => $("articleSearch").focus(), 0);
-  });
-  $("journalAboutButton").addEventListener("click", () => {
+  }));
+  $("journalAboutButton").addEventListener("click", () => guardedNavigation(() => {
     setHash("#essays");
     showArticleHome({ clearCurrent: false });
     $("journalIntro").hidden = true;
@@ -981,11 +1392,17 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
     $("journalIndexView").hidden = true;
     $("journalAbout").hidden = false;
     setJournalNav("about");
-    $("journalAbout").scrollIntoView({ behavior: "smooth", block: "start" });
-  });
+    $("journalAbout").scrollIntoView({ behavior: scrollBehavior(), block: "start" });
+  }));
   $("articleReaderBack").addEventListener("click", () => { setHash("#essays"); showArticleHome(); });
-  ["articleSearch", "articleStatusFilter", "articleTagFilter"].forEach((id) => $(id).addEventListener(id === "articleSearch" ? "input" : "change", renderList));
-  $("newArticleButton").addEventListener("click", () => editArticle(null).catch((error) => notify(error.message, true)));
+  $("articleSearch").addEventListener("input", refreshArticleSearch);
+  ["articleStatusFilter", "articleVisibilityFilter", "articleTagFilter"].forEach((id) => $(id).addEventListener("change", renderList));
+  $("articleFilterReset").addEventListener("click", () => {
+    for (const id of ["articleSearch", "articleStatusFilter", "articleVisibilityFilter", "articleTagFilter"]) $(id).value = "";
+    refreshArticleSearch();
+    $("articleSearch").focus();
+  });
+  $("newArticleButton").addEventListener("click", () => guardedNavigation(() => editArticle(null)));
   $("articleImportInput").addEventListener("change", async (event) => {
     const file = event.target.files?.[0];
     if (!file) return;
@@ -993,12 +1410,19 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
     catch (error) { notify(error.message, true); }
     event.target.value = "";
   });
-  $("articleTrashButton").addEventListener("click", toggleTrash);
+  $("articleTrashButton").addEventListener("click", () => guardedNavigation(toggleTrash));
   $("articleEditButton").addEventListener("click", () => editArticle(current).catch((error) => notify(error.message, true)));
   $("articleDownloadButton").addEventListener("click", exportCurrent);
   $("articleHistoryButton").addEventListener("click", openHistory);
   $("articleDeleteButton").addEventListener("click", () => current?.deletedAt ? restoreCurrent() : deleteCurrent());
   $("articleEditor").addEventListener("submit", saveArticle);
+  document.querySelectorAll("[data-editor-view]").forEach((button) => button.addEventListener("click", () => setEditorView(button.dataset.editorView)));
+  $("articleSettingsButton").addEventListener("click", () => setSettingsOpen($("articleSettingsDrawer").hidden));
+  $("articleSettingsClose").addEventListener("click", () => setSettingsOpen(false));
+  $("articleSettingsScrim").addEventListener("click", () => setSettingsOpen(false));
+  $("articleCheckpointButton").addEventListener("click", createCheckpoint);
+  $("articlePublishButton").addEventListener("click", publishCurrent);
+  $("articleUnpublishButton").addEventListener("click", unpublishCurrent);
   $("articleTradeSearch").addEventListener("input", () => renderTradePicker());
   $("articleTradePopoverClose").addEventListener("click", () => toggleTradePicker(false));
   $("articleMarkdown").addEventListener("click", (event) => {
@@ -1010,7 +1434,7 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
     if (!button) return;
     const heading = document.getElementById(button.dataset.articleHeadingId);
     if (!heading || !$("articleMarkdown").contains(heading)) return;
-    heading.scrollIntoView({ behavior: "smooth", block: "start" });
+    heading.scrollIntoView({ behavior: scrollBehavior(), block: "start" });
     heading.focus({ preventScroll: true });
   });
   $("articleEditor").addEventListener("keydown", (event) => {
@@ -1022,6 +1446,11 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
       event.preventDefault();
       toggleTradePicker(false);
       articleEditorInstance?.focus();
+      return;
+    }
+    if (event.key === "Escape" && !$("articleSettingsDrawer").hidden) {
+      event.preventDefault();
+      setSettingsOpen(false);
       return;
     }
     if (event.key === "Escape") cancelEditor();
@@ -1052,8 +1481,9 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
   $("articleImageInput").addEventListener("change", (event) => { uploadImages(event.target.files || []); event.target.value = ""; });
   $("articleExportAll").addEventListener("click", exportAll);
   $("articleTitleInput").addEventListener("input", () => { markEditorChanged(); updateLivePreview(articleEditorInstance?.getValue() || pendingEditorValue); });
-  ["articleStatusInput", "articleTagsInput"].forEach((id) => $(id).addEventListener("input", markEditorChanged));
-  window.addEventListener("beforeunload", (event) => { if (dirty) { event.preventDefault(); event.returnValue = ""; } });
+  ["articleSummaryInput", "articleTagsInput", "articleSlugInput"].forEach((id) => $(id).addEventListener("input", markEditorChanged));
+  ["articleStatusInput", "articleCoverInput"].forEach((id) => $(id).addEventListener("change", markEditorChanged));
+  window.addEventListener("beforeunload", (event) => { if (dirty || savePromise || imageUploadPromise) { event.preventDefault(); event.returnValue = ""; } });
   window.addEventListener("popstate", () => { route().catch((error) => notify(error.message, true)); });
 
   return {
@@ -1068,21 +1498,14 @@ export function initArticles({ apiFetch, apiBase, getToken, getDashboard, notify
       $("journalUserName").textContent = user?.name || user?.login || "私人手记";
       const initial = (user?.name || user?.login || "我").trim().slice(0, 1).toUpperCase();
       $("journalUserInitial").textContent = initial;
-      $("journalBrandFallback").textContent = initial;
-      $("journalProfileFallback").textContent = initial;
-      for (const imageId of ["journalBrandAvatar", "journalProfileAvatar"]) {
-        const image = $(imageId);
-        const fallback = image.nextElementSibling;
-        image.hidden = !user?.avatar;
-        fallback.hidden = Boolean(user?.avatar);
-        if (user?.avatar) image.src = user.avatar;
-      }
       $("articleEmpty").querySelector("p").textContent = canEdit()
         ? "也可以新建或导入 Markdown 文件。"
         : "请选择一篇手记进行阅读。";
     },
     route,
     showSection,
+    createFromTrade,
+    articlesForTrade,
     async open(articleId) {
       showSection("articles", { updateHistory: false });
       if (!loaded) await loadSummaries();
