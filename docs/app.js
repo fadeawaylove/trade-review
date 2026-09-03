@@ -1,8 +1,8 @@
-import { buildEquityChartModel, formatEquityAxisValue, formatEquityDateLabel, resolveChartRange, resolveEquityPanOffset, resolveEquityPanWindow, resolveEquityWheelCount, resolveEquityZoomWindow, scaleEquityPriceDomain, shouldBlockEquityZoomOut } from "./equity-chart.js?v=20260811-3";
+import { buildEquityChartModel, formatEquityAxisValue, formatEquityDateLabel, resolveChartRange, resolveEquityPanOffset, resolveEquityPanWindow, resolveEquityWheelCount, resolveEquityZoomWindow, scaleEquityPriceDomain, shouldBlockEquityZoomOut } from "./equity-chart.js?v=20260903-1";
 import { buildEvidenceCarouselState } from "./evidence-carousel.js?v=20260721-1";
 import { clearAttachmentCache, loadAttachmentBlob, removeAttachmentFromCache } from "./attachment-cache.js?v=20260804-1";
 import { paginateLedgerRows } from "./ledger-pagination.js?v=20260729-1";
-import { initArticles } from "./articles.js?v=20260829-2";
+import { initArticles } from "./articles.js?v=20260903-1";
 import { safeReturnHash, tokenNeedsRefresh } from "./session.js?v=20260804-1";
 import { calculateTradeStats } from "./trade-stats.js?v=20260821-1";
 import { initSilverTargetCalculator } from "./silver-target.js?v=20260823-2";

@@ -1,4 +1,4 @@
-import { renderArticleMarkdown } from "./article-markdown.js?v=20260829-2";
+import { renderArticleMarkdown } from "./article-markdown.js?v=20260903-1";
 import {
   articleDownloadName,
   articleHash,
@@ -10,7 +10,7 @@ import {
   needsArticlePublishing,
   preserveUnchangedMarkdown,
   proportionalScrollTop,
-} from "./article-utils.js?v=20260829-2";
+} from "./article-utils.js?v=20260903-1";
 import {
   formatTradeReference,
   privateArticleImageIds,
@@ -18,7 +18,7 @@ import {
   restorePrivateArticleImages,
   tradeIdsFromMarkdown,
   tradePickerTrades,
-} from "./article-references.js?v=20260829-2";
+} from "./article-references.js?v=20260903-1";
 
 const $ = (id) => document.getElementById(id);
 const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[char]));

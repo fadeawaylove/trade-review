@@ -143,13 +143,6 @@ function tradeOrderValue(trade, fallbackIndex) {
   return shiftedHour * 3600 + Number(match[2]) * 60 + Number(match[3] || 0);
 }
 
-function tradeSessionOrder(trade) {
-  const session = String(trade.session || "").trim();
-  if (session === "夜盘") return 0;
-  if (session === "日盘") return 1;
-  return null;
-}
-
 export function buildEquityChartModel(trades, options = {}) {
   const width = options.width || DEFAULT_WIDTH;
   const height = options.height || DEFAULT_HEIGHT;
@@ -171,11 +164,6 @@ export function buildEquityChartModel(trades, options = {}) {
   let cumulative = 0;
   const allValues = groupedTrades.map((group) => {
     const orderedTrades = [...group.trades].sort((a, b) => {
-      const aSessionOrder = tradeSessionOrder(a.trade);
-      const bSessionOrder = tradeSessionOrder(b.trade);
-      if (aSessionOrder !== null && bSessionOrder !== null && aSessionOrder !== bSessionOrder) {
-        return aSessionOrder - bSessionOrder;
-      }
       const difference = tradeOrderValue(a.trade, a.tradeIndex) - tradeOrderValue(b.trade, b.tradeIndex);
       return difference || a.tradeIndex - b.tradeIndex;
     });
