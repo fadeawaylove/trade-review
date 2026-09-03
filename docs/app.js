@@ -5,6 +5,7 @@ import { paginateLedgerRows } from "./ledger-pagination.js?v=20260729-1";
 import { initArticles } from "./articles.js?v=20260903-1";
 import { safeReturnHash, tokenNeedsRefresh } from "./session.js?v=20260804-1";
 import { calculateTradeStats } from "./trade-stats.js?v=20260821-1";
+import { resolveTradeNavigation } from "./trade-navigation.js?v=20260904-1";
 import { initSilverTargetCalculator } from "./silver-target.js?v=20260823-2";
 
 (() => {
@@ -909,9 +910,7 @@ import { initSilverTargetCalculator } from "./silver-target.js?v=20260823-2";
       <button class="evidence-preview" type="button" aria-label="查看 ${esc(attachment.fileName)}"><span>正在读取图表…</span></button>
       <div class="evidence-meta"><div><b>${esc(attachment.fileName)}</b><small>${formatBytes(attachment.byteSize)}</small></div><button class="evidence-delete" type="button" data-delete-attachment="${esc(attachment.id)}">删除</button></div>
     </article>`).join("");
-    const tradeIndex = (dashboard?.trades || []).findIndex((row) => row.tradeId === trade.tradeId);
-    const previous = tradeIndex > 0 ? dashboard.trades[tradeIndex - 1] : null;
-    const next = tradeIndex >= 0 && tradeIndex < dashboard.trades.length - 1 ? dashboard.trades[tradeIndex + 1] : null;
+    const { previous, next } = resolveTradeNavigation(selectedTrades(), trade.tradeId);
     $("workspaceKicker").textContent = `${trade.tradeId} · ${trade.dateLabel} · ${trade.session}`;
     $("workspaceTitle").textContent = `${trade.instrument} ${trade.contract} · ${trade.direction}单`;
     $("previousTrade").disabled = !previous;
