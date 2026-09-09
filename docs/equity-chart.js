@@ -143,6 +143,19 @@ function tradeOrderValue(trade, fallbackIndex) {
   return shiftedHour * 3600 + Number(match[2]) * 60 + Number(match[3] || 0);
 }
 
+export function orderTradesByCloseTime(trades) {
+  const groups = new Map();
+  for (const trade of trades || []) {
+    const date = trade.dateLabel || trade.date || "日期待确认";
+    if (!groups.has(date)) groups.set(date, []);
+    groups.get(date).push(trade);
+  }
+  return [...groups.values()].flatMap((rows) => rows
+    .map((trade, index) => ({ trade, index }))
+    .sort((a, b) => tradeOrderValue(a.trade, a.index) - tradeOrderValue(b.trade, b.index) || a.index - b.index)
+    .map(({ trade }) => trade));
+}
+
 export function buildEquityChartModel(trades, options = {}) {
   const width = options.width || DEFAULT_WIDTH;
   const height = options.height || DEFAULT_HEIGHT;

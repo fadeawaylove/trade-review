@@ -1,4 +1,4 @@
-import { buildEquityChartModel, formatEquityAxisValue, formatEquityDateLabel, resolveChartRange, resolveEquityPanOffset, resolveEquityPanWindow, resolveEquityWheelCount, resolveEquityZoomWindow, scaleEquityPriceDomain, shouldBlockEquityZoomOut } from "./equity-chart.js?v=20260903-1";
+import { orderTradesByCloseTime, buildEquityChartModel, formatEquityAxisValue, formatEquityDateLabel, resolveChartRange, resolveEquityPanOffset, resolveEquityPanWindow, resolveEquityWheelCount, resolveEquityZoomWindow, scaleEquityPriceDomain, shouldBlockEquityZoomOut } from "./equity-chart.js?v=20260909-1";
 import { buildEvidenceCarouselState } from "./evidence-carousel.js?v=20260721-1";
 import { clearAttachmentCache, loadAttachmentBlob, removeAttachmentFromCache } from "./attachment-cache.js?v=20260804-1";
 import { paginateLedgerRows } from "./ledger-pagination.js?v=20260729-1";
@@ -349,7 +349,7 @@ import { initSilverTargetCalculator } from "./silver-target.js?v=20260823-2";
   }
 
   function selectedTrades() {
-    return (dashboard?.trades || []).filter((trade) => filters.every((key) => !selects[key].value || trade[key] === selects[key].value));
+    return orderTradesByCloseTime(dashboard?.trades || []).filter((trade) => filters.every((key) => !selects[key].value || trade[key] === selects[key].value));
   }
 
   function setMetric(id, value, sign = null) {
